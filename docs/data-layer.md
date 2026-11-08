@@ -102,6 +102,17 @@ for (const record of records) {
 
 自检：`node scripts/check.mjs`（零额外依赖，失败返回非 0）
 
+单条数据试跑：
+
+```bash
+node scripts/ingest.mjs 我的数据.json
+node scripts/ingest.mjs 我的数据.json --collector wecom-paste
+node scripts/ingest.mjs 我的数据.json --json > result.json
+```
+
+它会打印能力审计结果、每条记录解析出的时间/类别/可见范围/置信度，以及缺哪些字段。
+采集方不需要装依赖、也不需要看懂代码，拿这个就能自查。
+
 ---
 
 ## 5. 当前限制（别当它已经完成）
