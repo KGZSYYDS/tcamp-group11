@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
-import { ArrowUpRight, Coffee } from "lucide-react";
+import { Coffee } from "lucide-react";
 import type { AgendaEvent, AgendaVisual } from "@/lib/agenda";
 import { dateKey, durationMinutes } from "@/lib/agenda";
 import { AnimatedBackground } from "./ui/AnimatedBackground";
@@ -75,11 +75,6 @@ export default function ClockFace({
     const e = Math.max(toHour(event.end), s + 0.05);
     return s < start + 12 && e > start;
   });
-
-  const picked = events.find((event) => event.id === hovered);
-  const currentHour = now ? now.getHours() + now.getMinutes() / 60 : 0;
-  const nextEvent =
-    events.find((event) => !isToday || toHour(event.end) > currentHour) ?? events[0];
 
   const hands = now
     ? [
@@ -239,25 +234,6 @@ export default function ClockFace({
         ))}
       </div>
 
-      <div className="clock-bottom">
-        <div>
-          <strong>
-            {picked
-              ? picked.title
-              : nextEvent
-                ? `下一件 · ${nextEvent.title}`
-                : "今天的安排，已告一段落。"}
-          </strong>
-          <span>
-            {picked
-              ? `${picked.start}–${picked.end}${picked.location ? ` · ${picked.location}` : ""}`
-              : `${selected.getMonth() + 1}月${selected.getDate()}日 · ${
-                  period === "am" ? "00:00–12:00" : "12:00–24:00"
-                } · 点击弧带查看日程`}
-          </span>
-        </div>
-        <ArrowUpRight size={23} />
-      </div>
     </section>
   );
 }

@@ -712,3 +712,22 @@
 /* Dock 的容器由本页提供，原型里是 fixed 定位，这里跟随页面滚动 */
 .calendar-app .dock-area { position: relative; left: auto; right: auto; bottom: auto; transform: none; margin: 28px auto 12px; height: auto; min-height: 96px; z-index: auto; }
 .calendar-app .toast { position: fixed; }
+
+/* 时钟视图：上下排列 + 统一气泡容器 */
+.calendar-app .clock-bubble {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: 0 12px 25px #1d223710;
+}
+.calendar-app .clock-bubble .clock-card {
+  border-radius: 0;
+  box-shadow: none;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+}
+.calendar-app .clock-bubble .agenda {
+  border-radius: 0;
+  flex: 1;
+}

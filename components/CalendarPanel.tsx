@@ -15,7 +15,6 @@ import {
   Search,
   Settings2,
   SlidersHorizontal,
-  Sparkles,
 } from "lucide-react";
 import type { AgendaEvent, AgendaVisual } from "@/lib/agenda";
 import { dateKey } from "@/lib/agenda";
@@ -230,8 +229,6 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
         ? `${monday.getMonth() + 1}.${monday.getDate()} — ${addDays(monday, 6).getMonth() + 1}.${addDays(monday, 6).getDate()}`
         : `${selected.getMonth() + 1} 月 ${selected.getDate()} 日`;
 
-  const profileIncomplete = onlyRelated && (!profile?.college || !profile?.grade);
-
   return (
     <div className="calendar-app">
       <header className="cal-topbar">
@@ -342,7 +339,7 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
         transition={{ duration: reduced ? 0 : 0.16, ease: [0.23, 1, 0.32, 1] }}
       >
         {view === "clock" ? (
-          <div className="clock-layout">
+          <div className="clock-bubble">
             <ClockFace
               instant={quickSwitch}
               events={todayEvents}
@@ -387,28 +384,6 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
                   </div>
                 )}
               </div>
-
-              {profileIncomplete ? (
-                <div className="breathing-space">
-                  <span className="breathing-icon">
-                    <Sparkles size={21} />
-                  </span>
-                  <div>
-                    <strong>完善学院与年级</strong>
-                    <p>到「我的」补全信息后，学院 / 年级公共日程才能精确匹配。</p>
-                  </div>
-                </div>
-              ) : (
-                <div className="breathing-space">
-                  <span className="breathing-icon">
-                    <Coffee size={21} />
-                  </span>
-                  <div>
-                    <strong>时间有安排，也有留白</strong>
-                    <p>把一件想做的小事，放进今天。</p>
-                  </div>
-                </div>
-              )}
             </section>
           </div>
         ) : null}
