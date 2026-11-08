@@ -1,10 +1,11 @@
 import { cloud } from "./cloud";
+import { meetingSystemPrompt, weekAnchors } from "./meeting-prompt.mjs";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 export interface ParsedEvent {
   title: string;
-  kind: "exam" | "pe" | "activity" | "other";
+  kind: "exam" | "pe" | "activity" | "meeting" | "other";
   date: string | null;
   /** 时间段事件的结束日期（如体测周），单日为 null */
   endDate: string | null;
@@ -69,7 +70,7 @@ export async function parseNoticeToEvent(
       : "";
 
   const systemPrompt = `你是校园通知解析器。从通知文本中提取一个日历事件，只输出 JSON，不要输出任何其他文字。JSON 字段：
-{"title": "事件简短标题(不超过30字)", "kind": "exam 或 pe 或 activity 或 other（分别对应考试/体测/活动/其他）", "date": "YYYY-MM-DD 开始日期，必填，必须尽力从正文推断", "endDate": "YYYY-MM-DD 结束日期；时间段事件（如体测周、活动周）填写，单日事件为 null", "time": "HH:mm，无具体时间则为 null（需自行预约时段的活动一律为 null）", "location": "地点，无则为 null", "link": "通知中的预约/报名/详情链接(http开头)，无则为 null", "scope": "school 或 college 或 grade 或 undergraduate 或 postgraduate 或 doctoral（面向对象：全校/某学院/某年级/本科生/硕士生/博士生，无法判断用 school）", "college": "scope 为 college 时的学院全名，否则 null", "grade": "scope 为 grade 时的年级如 2026 级，否则 null"}
+{"title": "事件简短标题(不超过30字)", "kind": "exam 或 pe 或 activity 或 meeting 或 other（分别对应考试/体测/活动/会议/其他）", "date": "YYYY-MM-DD 开始日期，必填，必须尽力从正文推断", "endDate": "YYYY-MM-DD 结束日期；时间段事件（如体测周、活动周）填写，单日事件为 null", "time": "HH:mm，无具体时间则为 null（需自行预约时段的活动一律为 null）", "location": "地点，无则为 null", "link": "通知中的预约/报名/详情链接(http开头)，无则为 null", "scope": "school 或 college 或 grade 或 undergraduate 或 postgraduate 或 doctoral（面向对象：全校/某学院/某年级/本科生/硕士生/博士生，无法判断用 school）", "college": "scope 为 college 时的学院全名，否则 null", "grade": "scope 为 grade 时的年级如 2026 级，否则 null"}
 规则：
 - date 为必填项，不得轻易给 null；正文中的"报名时间""活动时间""截止时间"都可作为依据，只有全文确实没有任何日期信息时才允许 null。
 - 正文可能混有导航栏、其他通知标题等噪音，只关注与标题对应的那条通知的内容。
@@ -104,7 +105,7 @@ export async function parseNoticeToEvent(
 
   return {
     title: String(parsed.title || title).slice(0, 60),
-    kind: ["exam", "pe", "activity", "other"].includes(parsed.kind)
+    kind: ["exam", "pe", "activity", "meeting", "other"].includes(parsed.kind)
       ? parsed.kind
       : "other",
     date,
@@ -176,5 +177,173 @@ export async function parseDdlText(text: string): Promise<DdlCandidate[]> {
       date: normalizeDate(d.dueDate),
       time: /^\d{2}:\d{2}$/.test(d.dueTime || "") ? d.dueTime : null,
     }));
+}
+
+// ---------- 群聊 / 会议提取 ----------
+//
+// 为什么走这条路而不是读本地聊天库：微信 PC(4.x) 与企业微信 PC 的消息库都是
+// SQLCipher 加密的，官方没有导出接口；解库只能靠读进程内存拿密钥，属于外挂行为，
+// 会封号、也过不了合规审查（详见 docs/data-access.md §三）。
+// 用户把群里的通知「复制」或「截图」交给模型，是零授权、零风险、当天能用的等价方案。
+
+export interface MeetingCandidate {
+  /** 会议名，如「班委会」「课题组组会」 */
+  title: string;
+  /** YYYY-MM-DD；模型判断不出时为空，由用户补 */
+  date: string | null;
+  /** HH:mm */
+  startTime: string | null;
+  endTime: string | null;
+  location: string | null;
+  /** 来源群名，用于回溯 */
+  group: string | null;
+  /** 提前多少分钟提醒；0 = 不提醒 */
+  remindBefore: number;
+  /** 支撑这次时间判断的原文片段，供用户核对 */
+  quote: string | null;
+}
+
+/** 提醒档位，UI 下拉直接用 */
+export const REMIND_OPTIONS = [
+  { value: 0, label: "不提醒" },
+  { value: 10, label: "提前 10 分钟" },
+  { value: 30, label: "提前 30 分钟" },
+  { value: 60, label: "提前 1 小时" },
+  { value: 90, label: "提前 1.5 小时" },
+  { value: 1440, label: "提前 1 天" },
+];
+
+/** 取一个可用模型；需要读图时必须是 supportsImages 的（实测字段名不是 capabilities.vision） */
+async function pickModel(needVision: boolean) {
+  const models = (await cloud.llm.models.list()) as any[];
+  const usable = models.filter((m: any) => m && m.disabled !== true && m.enabled !== false);
+  const model = needVision
+    ? usable.find((m: any) => m.supportsImages === true && m.disabledMultimodal !== true)
+    : usable[0];
+  if (!model) {
+    throw new Error(
+      needVision
+        ? "当前没有支持读图的模型，截图识别不可用；请改用「复制群消息文字」再粘贴"
+        : "当前没有可用的 AI 模型，请稍后再试"
+    );
+  }
+  return model;
+}
+
+function todayContext() {
+  const now = new Date();
+  return {
+    today: now.toLocaleDateString("zh-CN", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      weekday: "long",
+    }),
+    weekday: ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][now.getDay()],
+  };
+}
+
+function normalizeMeeting(raw: any, fallbackGroup: string | null): MeetingCandidate | null {
+  if (!raw || !raw.title) return null;
+  const date = normalizeDate(raw.date);
+  const hm = (v: unknown) => (/^\d{1,2}:\d{2}$/.test(String(v || "")) ? String(v).padStart(5, "0") : null);
+  const remind = Number(raw.remindBefore);
+  return {
+    title: String(raw.title).slice(0, 40),
+    date,
+    startTime: hm(raw.startTime),
+    endTime: hm(raw.endTime),
+    location: raw.location ? String(raw.location).slice(0, 80) : null,
+    group: raw.group ? String(raw.group).slice(0, 40) : fallbackGroup,
+    remindBefore: Number.isFinite(remind) && remind >= 0 && remind <= 2880 ? remind : 30,
+    quote: raw.quote ? String(raw.quote).slice(0, 80) : null,
+  };
+}
+
+function parseMeetingArray(answer: string): any[] {
+  const match = answer.match(/\[[\s\S]*\]/);
+  if (!match) {
+    // 模型偶尔只返回单个对象，容错一下
+    const single = answer.match(/\{[\s\S]*\}/);
+    if (single) return [JSON.parse(single[0])];
+    throw new Error("AI 未能从这段内容里识别出会议，换一段试试");
+  }
+  const arr = JSON.parse(match[0]);
+  if (!Array.isArray(arr)) throw new Error("AI 返回格式异常，请重试");
+  return arr;
+}
+
+/** 从复制的群聊文字里提取会议 */
+export async function parseChatToMeetings(
+  text: string,
+  groupHint: string | null = null
+): Promise<MeetingCandidate[]> {
+  const model = await pickModel(false);
+
+  let answer = "";
+  for await (const chunk of cloud.llm.chat.completions.create({
+    model: model.id,
+    messages: [
+      { role: "system", content: meetingSystemPrompt(weekAnchors(), false) },
+      { role: "user", content: text.slice(0, 8000) },
+    ],
+    stream: true,
+    response_format: { type: "json_object" },
+  }) as any) {
+    const delta = chunk.choices?.[0]?.delta?.content;
+    if (delta) answer += delta;
+  }
+
+  return parseMeetingArray(answer)
+    .map((r) => normalizeMeeting(r, groupHint))
+    .filter((x): x is MeetingCandidate => x !== null);
+}
+
+/** 从一张聊天截图里提取会议（走视觉模型，不需要装 OCR） */
+export async function parseChatImageToMeetings(
+  imageDataUrl: string,
+  groupHint: string | null = null
+): Promise<MeetingCandidate[]> {
+  const model = await pickModel(true);
+
+  let answer = "";
+  for await (const chunk of cloud.llm.chat.completions.create({
+    model: model.id,
+    messages: [
+      { role: "system", content: meetingSystemPrompt(weekAnchors(), true) },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "这是一张聊天窗口截图，请提取其中的会议安排。" },
+          { type: "image_url", image_url: { url: imageDataUrl, detail: "high" } },
+        ],
+      },
+    ],
+    stream: true,
+    response_format: { type: "json_object" },
+  }) as any) {
+    const delta = chunk.choices?.[0]?.delta?.content;
+    if (delta) answer += delta;
+  }
+
+  return parseMeetingArray(answer)
+    .map((r) => normalizeMeeting(r, groupHint))
+    .filter((x): x is MeetingCandidate => x !== null);
+}
+
+/** 会议事件写进 note 的格式：人可读，也便于以后做提醒任务时解析 */
+export function buildMeetingNote(m: MeetingCandidate): string {
+  const parts = [
+    m.group ? `来自群：${m.group}` : "来自群聊",
+    m.remindBefore > 0 ? `提醒:提前${m.remindBefore}分钟` : "提醒:关",
+    m.quote ? `原话：${m.quote}` : "",
+  ];
+  return parts.filter(Boolean).join(" · ");
+}
+
+/** 从 note 里取回提醒分钟数，没有标记则返回 null */
+export function readRemindMinutes(note?: string | null): number | null {
+  const m = String(note || "").match(/提醒:提前(\d+)分钟/);
+  return m ? Number(m[1]) : null;
 }
 

@@ -38,6 +38,7 @@ const KIND_META: Record<ItemKind, { label: string; chip: string; badge: string }
   checkin: { label: "签到", chip: "bg-indigo-500", badge: "bg-indigo-50 text-indigo-600" },
   pe: { label: "体测", chip: "bg-emerald-500", badge: "bg-emerald-50 text-emerald-600" },
   activity: { label: "活动", chip: "bg-violet-500", badge: "bg-violet-50 text-violet-600" },
+  meeting: { label: "会议", chip: "bg-cyan-600", badge: "bg-cyan-50 text-cyan-700" },
   other: { label: "其他", chip: "bg-gray-400", badge: "bg-gray-100 text-gray-500" },
 };
 

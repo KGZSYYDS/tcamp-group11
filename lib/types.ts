@@ -46,8 +46,8 @@ export interface CheckinInput {
   source?: string;
 }
 
-/** 通用日历事件：考试 / 体测 / 活动 / 其他 */
-export type EventKind = "exam" | "pe" | "activity" | "other";
+/** 通用日历事件：考试 / 体测 / 活动 / 会议 / 其他 */
+export type EventKind = "exam" | "pe" | "activity" | "meeting" | "other";
 
 export interface CalEvent {
   id: string;
