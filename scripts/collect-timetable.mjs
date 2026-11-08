@@ -17,6 +17,8 @@
  *   node scripts/collect-timetable.mjs --no-db       只写 data/timetable/*.json
  *   node scripts/collect-timetable.mjs --week1 2026-08-24   手动指定第 1 周周一
  *   node scripts/collect-timetable.mjs --term 2026-2027-1   指定学期
+ *   node scripts/collect-timetable.mjs --xh 2024150072      指定学号（接口没给时用）
+ *   node scripts/collect-timetable.mjs --file <resp.json>   离线解析已抓到的 xskcb 响应
  */
 import fs from "fs";
 import path from "path";
@@ -96,24 +98,37 @@ async function fetchTerm(jar, base) {
   return { xndm: row.XNDM, xqdm: row.XQDM, code: row.DM, name: row.MC };
 }
 
-/** 当前教学周：接口字段名在不同版本里不一样，按候选字段兜底 */
-async function fetchCurrentWeek(jar, base) {
+/** 当前教学周：dqzc 需要 学年 + 学期 + 当天日期，返回 row.ZC */
+async function fetchCurrentWeek(jar, base, term) {
   try {
-    const r = await appPost(jar, base, SYS, "jshkcb/dqzc.do");
-    const rows = Object.values(r.datas || {})[0]?.rows || [];
-    for (const row of rows) {
-      for (const [k, v] of Object.entries(row)) {
-        if (/^(DQ)?ZC$|^SKZC$|^ZC$/.test(k) && /^\d{1,2}$/.test(String(v))) return Number(v);
-      }
-    }
-  } catch {}
-  return null;
+    const body = new URLSearchParams({ XN: term.xndm, XQ: term.xqdm, RQ: iso(new Date()) });
+    const r = await appPost(jar, base, SYS, "jshkcb/dqzc.do", body.toString());
+    const row = r.datas?.dqzc?.rows?.[0];
+    const zc = Number(row?.ZC);
+    return Number.isFinite(zc) && zc > 0 ? zc : null;
+  } catch {
+    return null;
+  }
 }
 
-async function fetchSchedule(jar, base, term, week) {
+/** 学号：统一认证账号（482848）不是学号，课表接口要学号，从门户用户信息里取 */
+async function fetchStudentId(jar) {
+  try {
+    const res = await fetch("https://ehall.szu.edu.cn/jsonp/userInfo.json", {
+      headers: { Cookie: jar.headerFor("https://ehall.szu.edu.cn/") },
+    });
+    const txt = await res.text();
+    const m = txt.match(/"userId"\s*:\s*"?(\d+)"?/);
+    return m ? m[1] : null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchSchedule(jar, base, term, week, xh) {
   const body = new URLSearchParams({
     XNXQDM: term.code,
-    XH: "",
+    XH: xh || "",
     SKZC: String(week || 1),
   });
   const r = await appPost(jar, base, SYS, "xskcb/xskcb.do", body.toString());
@@ -226,10 +241,14 @@ async function main() {
     termName = term.name || termCode;
     console.log(`学期：${termName}（${termCode}）`);
 
-    currentWeek = Number(WEEK_OVERRIDE) || (await fetchCurrentWeek(jar, app.base));
+    currentWeek = Number(WEEK_OVERRIDE) || (await fetchCurrentWeek(jar, app.base, term));
     console.log(`当前教学周：${currentWeek ?? "未知"}`);
 
-    rows = await fetchSchedule(jar, app.base, { code: termCode }, currentWeek || 1);
+    const xh = opt("xh") || (await fetchStudentId(jar));
+    console.log(`学号：${xh ?? "（接口没给，按会话身份取）"}`);
+    if (!xh) console.warn("警告：没取到学号，若课表为空请用 --xh <学号> 指定");
+
+    rows = await fetchSchedule(jar, app.base, { code: termCode }, currentWeek || 1, xh);
   }
 
   console.log(`课表行：${rows.length} 条（同一门课可能拆成多段）`);

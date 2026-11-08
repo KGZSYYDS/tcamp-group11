@@ -102,8 +102,8 @@ for (const [id, r] of dots) {
   console.log(line);
   fs.appendFileSync("data/tmp/cdp-requests.log", line + "\n");
 
-  // 关键接口：保存完整请求头 + 请求体 + 响应体
-  if (/xskcb\/xskcb\.do|dqxnxq\.do|cxjcgx\.do/.test(r.url) && !headList.some((h) => h.url === r.url)) {
+  // 关键接口：保存完整请求头 + 请求体 + 响应体（按 URL 去重）
+  if (/\/modules\//.test(r.url) && !headList.some((h) => h.url.split("?")[0] === r.url.split("?")[0])) {
     const hdrs = await send("Network.getRequestHeaders", { requestId: id }).catch(() => null);
     headList.push({ url: r.url, method: r.method, postData: r.postData, headers: hdrs?.result?.headers });
     const tag = r.url.match(/modules\/(\w+)\/(\w+)\.do/);

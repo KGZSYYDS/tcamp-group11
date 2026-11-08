@@ -50,13 +50,15 @@
 |---|---|---|
 | `/appShow?appId=4770397878132218` | 打开应用，302 到 `/jwapp/sys/wdkb/*default/index.do` | — |
 | `/jwapp/sys/wdkb/modules/jshkcb/dqxnxq.do` | 当前学年学期 | — |
-| `/jwapp/sys/wdkb/modules/jshkcb/dqzc.do` | 当前教学周 | — |
-| `/jwapp/sys/wdkb/modules/jshkcb/cxjcs.do` | 各学期节次/校历行（含 `XQKSRQ` 学期开始日期、`ZZC` 总周次） | — |
+| `/jwapp/sys/wdkb/modules/jshkcb/dqzc.do` | 当前教学周（`rows[0].ZC`） | `XN=2026-2027`、`XQ=1`、`RQ=2026-11-8`（三个都必填，缺一个就 `WebServiceFault`） |
+| `/jwapp/sys/wdkb/modules/jshkcb/cxjcs.do` | 各学期节次/校历行（含 `XQKSRQ` 学期开始日期、`ZZC` 总周次） | `XN`、`XQ` |
 | `/jwapp/sys/wdkb/modules/xskcb/xskcb.do` | **课表本体** | `XNXQDM=2026-2027-1`、`XH=学号`、`SKZC=当前周` |
 | `/jwapp/sys/wdkb/modules/xskcb/cxjcgx.do` | 节次关系 | `XNXQDM` |
 | `/jwapp/sys/wdkb/modules/xskcb/xsdkkc.do` | 待选/未在课表展现的课程 | — |
 
 - `xskcb.do` 返回字段：`KCM` 课程名、`SKJS` 教师、`JASMC` 教室、`SKXQ` 星期、`KSJC`~`JSJC` 节次、`ZCMC` 周次说明、`SKZC` 周次掩码（第 n 位为 1 = 第 n 周有课）、`JXBID` 教学班 ID
+- **学号 ≠ 统一认证账号**：账号 `482848` 是登录名，课表接口要学号 `2024150072`，从 `GET /jsonp/userInfo.json` 的 `userId` 取
+- 门户用户信息：`GET /jsonp/userInfo.json` → `hasLogin`、`userId`（学号）、`userTypeName`（学生）、`schoolName`
 - **访问姿势有坑**：`.do` 接口必须是表单 POST + `X-Requested-With: XMLHttpRequest`；接口名写错会返回 403 而不是 404，容易误判成「没权限」
 - **不要反复登录**：统一认证对短时间内的重复登录返回 `401`（页面仍是登录页、无错误提示），只能等风控窗口过去。采集器因此把整条 Cookie 按域缓存到 `data/.ehall-session.json`，失效才重登
 - 课表页的 `*default/index.do` 是 SPA，数据全部走 XHR；纯 HTTP 拿页面只能得到空壳。要抓真实请求用 `scripts/ehall-cdp.mjs`（本机 Chrome + CDP，只读抓包，不依赖 playwright）

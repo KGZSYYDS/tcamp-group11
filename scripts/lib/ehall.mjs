@@ -57,8 +57,14 @@ export async function getEhallJar({ force = false } = {}) {
       return { jar: r.jar, cached: false };
     } catch (e) {
       lastErr = e;
-      // 401 多为短时间重复登录触发风控，退避后重试
-      if (/401/.test(e.message) && attempt < 3) await sleep(attempt * 15000);
+      // 401 = 短时间内重复登录触发风控。继续重试只会把窗口拖长，直接停。
+      if (/401/.test(e.message)) {
+        throw new Error(
+          "统一认证返回 401（短时间内重复登录触发风控）。等 30–60 分钟再跑；" +
+            "已有缓存时不要加 --relogin。"
+        );
+      }
+      if (attempt < 3) await sleep(attempt * 5000);
       else break;
     }
   }
