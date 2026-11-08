@@ -45,7 +45,7 @@
 | 地址 | 状态 | 说明 |
 |---|---|---|
 | `https://www.szu.edu.cn/` | 200 | 主站，无 CAS |
-| `https://www.szu.edu.cn/index/tzgg.htm` | 200 | 通知公告页，但列表是 JS 渲染，HTML 里没有条目，需抓 XHR 或换渲染方案 |
+| `https://www.szu.edu.cn/index/tzgg.htm` | 200 | 通知公告页，但列表是 JS 渲染：HTML 里既没有条目也没有 iframe/列表 ajax 接口，只有访问计数 `_jsq_()`。**纯 HTTP 抓不到**，只能在浏览器上下文里取 DOM（现有插件的 `extract-page` 正好能干） |
 | `https://jwb.szu.edu.cn/` | 200 | 教务部站，公开 |
 
 域名探测：`jwxt.szu.edu.cn`、`cx.szu.edu.cn` 均无 DNS 记录（不要再按这两个名字写代码）。
