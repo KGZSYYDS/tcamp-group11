@@ -6,7 +6,7 @@ import type { AgendaEvent } from "@/lib/agenda";
 import { dateKey } from "@/lib/agenda";
 import { VISUAL_META } from "./ClockFace";
 
-export type DialogKind = "detail" | "add" | "edit" | "search" | "settings";
+export type DialogKind = "detail" | "add" | "edit" | "search";
 
 export interface DialogState {
   kind: DialogKind;
@@ -20,8 +20,6 @@ interface DialogProps {
   onDelete: (event: AgendaEvent) => Promise<void>;
   search: (query: string) => AgendaEvent[];
   onSelect: (event: AgendaEvent) => void;
-  interests: string[];
-  onToggleInterest: (tag: string) => void;
   submitting: boolean;
   error: string;
 }
@@ -44,12 +42,6 @@ const KIND_OPTIONS = [
   { value: "pe", label: "体测" },
   { value: "other", label: "其他" },
 ] as const;
-
-const INTEREST_TAGS = [
-  { tag: "学术讲座", desc: "讲座、学术交流与技术分享" },
-  { tag: "竞赛实践", desc: "竞赛、项目与创新实践" },
-  { tag: "校园活动", desc: "演出、展览与社团活动" },
-];
 
 function IconButton({
   label,
@@ -74,8 +66,6 @@ export default function EventDialog({
   onDelete,
   search,
   onSelect,
-  interests,
-  onToggleInterest,
   submitting,
   error,
 }: DialogProps) {
@@ -126,9 +116,7 @@ export default function EventDialog({
                   ? "新建日程"
                   : state.kind === "edit"
                     ? "编辑日程"
-                    : state.kind === "settings"
-                      ? "我的偏好"
-                      : "搜索日程"}
+                    : "搜索日程"}
             </span>
             <IconButton label="关闭" onClick={onClose}>
               <X size={21} />
@@ -203,38 +191,6 @@ export default function EventDialog({
                 await onSave(data);
               }}
             />
-          ) : null}
-
-          {state.kind === "settings" ? (
-            <>
-              <h2>让消息，刚好与你有关。</h2>
-              <p>关注偏好保存在本机，用于「只看与我相关」的筛选。</p>
-              <div className="interest-list">
-                {INTEREST_TAGS.map((item, i) => {
-                  const on = interests.includes(item.tag);
-                  return (
-                    <button
-                      key={item.tag}
-                      type="button"
-                      aria-pressed={on}
-                      onClick={() => onToggleInterest(item.tag)}
-                    >
-                      <span className={`interest-icon color-${i}`}>
-                        <Sparkles size={18} />
-                      </span>
-                      <span>
-                        <strong>{item.tag}</strong>
-                        <small>{item.desc}</small>
-                      </span>
-                      <span className={`checkmark ${on ? "checked" : ""}`}>{on ? <Check size={15} /> : null}</span>
-                    </button>
-                  );
-                })}
-              </div>
-              <button type="button" className="primary wide" onClick={onClose}>
-                完成
-              </button>
-            </>
           ) : null}
 
           {state.kind === "search" ? (

@@ -731,3 +731,7 @@
   border-radius: 0;
   flex: 1;
 }
+/* "仅看相关"按钮：继承类别按钮样式，移动端推到右侧避免拥挤 */
+@media (max-width: 620px) {
+  .calendar-app .filter-group .filter-toggle { margin-left: auto; }
+}

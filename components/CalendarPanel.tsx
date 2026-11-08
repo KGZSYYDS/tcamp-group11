@@ -13,7 +13,6 @@ import {
   Coffee,
   Plus,
   Search,
-  Settings2,
   SlidersHorizontal,
 } from "lucide-react";
 import type { AgendaEvent, AgendaVisual } from "@/lib/agenda";
@@ -43,8 +42,6 @@ const VIEWS: { id: ViewId; label: string; icon: typeof Clock3 }[] = [
 const FILTERS: AgendaVisual[] = ["course", "ddl", "notice", "personal"];
 
 const HIDDEN_KEY = "szu-cal-hidden";
-const INTEREST_KEY = "szu-cal-interests";
-const DEFAULT_INTERESTS = ["学术讲座", "竞赛实践", "校园活动"];
 
 function addDays(date: Date, n: number) {
   const result = new Date(date);
@@ -77,7 +74,6 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
   const [enabled, setEnabled] = useState<AgendaVisual[]>([...FILTERS]);
   const [onlyRelated, setOnlyRelated] = useState(true);
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
-  const [interests, setInterests] = useState<string[]>(DEFAULT_INTERESTS);
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [toast, setToast] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -87,7 +83,6 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
   // 本地偏好放在挂载后读取，避免服务端渲染时访问 localStorage
   useEffect(() => {
     setHiddenIds(readJson<string[]>(HIDDEN_KEY, []));
-    setInterests(readJson<string[]>(INTEREST_KEY, DEFAULT_INTERESTS));
   }, []);
 
   useEffect(() => {
@@ -137,14 +132,6 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
 
   function toggleFilter(id: AgendaVisual) {
     setEnabled((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  }
-
-  function toggleInterest(tag: string) {
-    setInterests((prev) => {
-      const next = prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag];
-      localStorage.setItem(INTEREST_KEY, JSON.stringify(next));
-      return next;
-    });
   }
 
   function hideEvent(event: AgendaEvent) {
@@ -238,14 +225,6 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
           </button>
           <button
             type="button"
-            className="icon-button"
-            aria-label="偏好设置"
-            onClick={() => open({ kind: "settings" })}
-          >
-            <Settings2 size={20} />
-          </button>
-          <button
-            type="button"
             className="icon-button add-quick"
             aria-label="新建日程"
             onClick={() => open({ kind: "add" })}
@@ -283,13 +262,12 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
           ))}
           <button
             type="button"
-            className="icon-button"
-            aria-label={onlyRelated ? "正在只看与我相关" : "显示全部公共日程"}
+            className="filter-toggle"
             aria-pressed={onlyRelated}
             onClick={() => setOnlyRelated((v) => !v)}
-            title={onlyRelated ? "只看与我相关（点击查看全部）" : "显示全部（点击只看与我相关）"}
           >
-            <SlidersHorizontal size={17} />
+            <SlidersHorizontal size={15} />
+            {onlyRelated ? "仅看相关" : "全部"}
           </button>
           {hiddenIds.length > 0 ? (
             <button type="button" className="unhide-button" onClick={unhideAll}>
@@ -473,8 +451,6 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
         onDelete={handleDelete}
         search={searchEvents}
         onSelect={(event) => open({ kind: "detail", event })}
-        interests={interests}
-        onToggleInterest={toggleInterest}
         submitting={submitting}
         error={formError}
       />
