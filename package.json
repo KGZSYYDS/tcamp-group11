@@ -6,7 +6,10 @@
     "dev": "node node_modules/next/dist/bin/next dev",
     "build": "node node_modules/next/dist/bin/next build",
     "start": "node node_modules/next/dist/bin/next start",
-    "collect:board": "node scripts/collect-board.mjs"
+    "collect:board": "node scripts/collect-board.mjs",
+    "collect:timetable": "node scripts/collect-timetable.mjs",
+    "ingest:notices": "node scripts/ingest-notices.mjs",
+    "auth:save": "node scripts/save-credentials.mjs"
   },
   "dependencies": {
     "@tencent-ai/workbuddy-cloud-sdk": "dev",

@@ -45,14 +45,19 @@ start.bat|sh    一键启动（缺依赖时自动 npm install）
 
 ## 数据采集
 
-公文通（`www1.szu.edu.cn/board/`）全站需要统一身份认证，没有公开 API。采集用「登录一次拿 Cookie」的方式，脚本不保存账号密码：
+两个采集器都走统一身份认证（CAS）。账号密码只存本地 `data/.credentials.json`（已被 gitignore），不进仓库：
 
 ```bash
-npm run collect:board -- --cookie "<浏览器复制>" --pages 5
+npm run auth:save -- 482848 "你的密码"   # 只跑一次
+npm run collect:board                    # 公文通 → data/board/*.json
+npm run ingest:notices                   # 上一步结果 → 云数据库（scope=school，按 URL 去重）
+npm run collect:timetable                # 办事大厅「我的课表」→ 云数据库（scope=personal）
 ```
 
-产出 `data/board/notices-*.json`，登录状态下 POST 到 `/api/board/ingest` 入库（`scope=school`，按 `source_url` 去重）。
-各系统能拿到什么、需要用户给什么权限，见 [`docs/data-access.md`](docs/data-access.md)。
+- 公文通全站要登录，没有公开 API；采集器登录一次拿 Cookie，之后按栏目翻页。
+- 课表按「课程 + 周次 + 星期 + 节次」展开成单次上课事件，重复跑只补新增；
+  节次时间表在 `scripts/collect-timetable.mjs` 顶部，学校调整作息改那里。
+- 各系统能拿到什么、需要用户给到什么权限，见 [`docs/data-access.md`](docs/data-access.md)。
 
 ## 协作约定
 

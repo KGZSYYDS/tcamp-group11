@@ -9,7 +9,7 @@
 |---|---|---|---|---|
 | **L0 无账号** | 什么都不给 | 主站通知公告、教务部公告 | 直接 GET，无登录 | 部分可用，见 §2.4 |
 | **L1 校园账号** | 统一身份认证登录（学号+密码，或企业微信扫码） | 公文通全部通知：体测、期末、讲座、开放日、报名 | CAS 会话 Cookie + 抓列表/详情 | 全站 CAS，必须登录 |
-| **L2 教务/课表** | L1 之上，进入办事大厅对应应用 | 个人课表、考试安排、成绩 | eHall 应用页（需 appId）+ 会话 | 外壳公开，数据接口要会话 |
+| **L2 教务/课表** | L1 之上，进入办事大厅对应应用 | 个人课表、考试安排、成绩 | eHall 应用页（appId）+ jwapp `.do` 接口 | 课表已打通，见 §2.3 |
 | **L3 消息/排班** | 企业微信授权（需学校侧建应用） | 日程、会议、审批；**不含聊天记录** | 企业微信开放平台 API | 需管理员配合，非自助 |
 
 **产品结论**：L0 只能撑「校园开放日/公共讲座」这种对外内容；L1 才是「体测 DDL / 期末安排」的主力，必须让用户登录一次；L2/L3 属于可选增强，不能作为默认路径。
@@ -35,10 +35,31 @@
 
 ### 2.3 办事大厅 `https://ehall.szu.edu.cn/new/index.html`
 
-- `200`，是金智 amp 门户的 SPA 外壳，公开可加载
-- 页面只挂了 jquery / i18n / `portal/js`，**应用列表和数据都在接口后面**，未登录拿不到
-- 应用入口形态：`/appShow?appId=<数字>`；appId 必须先登录后从门户首页枚举，无法盲猜
-- 所以「课表、创新领航讲座」这类要等拿到会话再做一次应用枚举
+- `200`，是金智 amp 门户的 SPA 外壳，公开可加载；应用列表在接口后面，未登录拿不到
+- 应用入口形态：`/appShow?appId=<数字>`
+- **登录后枚举应用列表**：`GET /jsonp/serviceCenterData.json`（约 68 KB，81 个应用，含 appId / 名称 / 是否 `hasPermission`）
+- 已定位：
+  - 我的课表 `4770397878132218`
+  - 全校课表查询 `4766960573884517`
+  - 我的成绩 `5101964191790615`、成绩查询 `4768574631264620`
+  - 我的考试安排 `7815927872376224`
+
+**我的课表数据接口**（金智 jwapp，全部表单 POST，会话靠 Cookie）：
+
+| 接口 | 作用 | 关键参数 |
+|---|---|---|
+| `/appShow?appId=4770397878132218` | 打开应用，302 到 `/jwapp/sys/wdkb/*default/index.do` | — |
+| `/jwapp/sys/wdkb/modules/jshkcb/dqxnxq.do` | 当前学年学期 | — |
+| `/jwapp/sys/wdkb/modules/jshkcb/dqzc.do` | 当前教学周 | — |
+| `/jwapp/sys/wdkb/modules/jshkcb/cxjcs.do` | 各学期节次/校历行（含 `XQKSRQ` 学期开始日期、`ZZC` 总周次） | — |
+| `/jwapp/sys/wdkb/modules/xskcb/xskcb.do` | **课表本体** | `XNXQDM=2026-2027-1`、`XH=学号`、`SKZC=当前周` |
+| `/jwapp/sys/wdkb/modules/xskcb/cxjcgx.do` | 节次关系 | `XNXQDM` |
+| `/jwapp/sys/wdkb/modules/xskcb/xsdkkc.do` | 待选/未在课表展现的课程 | — |
+
+- `xskcb.do` 返回字段：`KCM` 课程名、`SKJS` 教师、`JASMC` 教室、`SKXQ` 星期、`KSJC`~`JSJC` 节次、`ZCMC` 周次说明、`SKZC` 周次掩码（第 n 位为 1 = 第 n 周有课）、`JXBID` 教学班 ID
+- **访问姿势有坑**：`.do` 接口必须是表单 POST + `X-Requested-With: XMLHttpRequest`；接口名写错会返回 403 而不是 404，容易误判成「没权限」
+- **不要反复登录**：统一认证对短时间内的重复登录返回 `401`（页面仍是登录页、无错误提示），只能等风控窗口过去。采集器因此把整条 Cookie 按域缓存到 `data/.ehall-session.json`，失效才重登
+- 课表页的 `*default/index.do` 是 SPA，数据全部走 XHR；纯 HTTP 拿页面只能得到空壳。要抓真实请求用 `scripts/ehall-cdp.mjs`（本机 Chrome + CDP，只读抓包，不依赖 playwright）
 
 ### 2.4 公开可用的部分
 
@@ -65,20 +86,35 @@
 ## 四、采集器用法
 
 ```bash
-# 1. 浏览器登录公文通，F12 → Network → 复制 Cookie 整行
-# 2. 批量抓，输出 data/board/notices-YYYYMMDD.json
-npm run collect:board -- --cookie "<cookie>" --pages 5
+# 0. 只跑一次：凭据存本地 data/.credentials.json（已 gitignore）
+npm run auth:save -- 482848 "密码"
 
-# 3. 登录状态下入库（scope=school，按 source_url 去重）
-curl -X POST http://localhost:3000/api/board/ingest \
-     -H "Content-Type: application/json" -d @data/board/notices-20261108.json
+# 1. 公文通 → data/board/notices-YYYYMMDD.json
+npm run collect:board -- --login --pages 5
+
+# 2. 入库（scope=school，按 source_url 去重，直接走数据面 REST）
+npm run ingest:notices
+
+# 3. 个人课表 → 云数据库（scope=personal，按 课程+周次+星期+节次 去重）
+npm run collect:timetable
+
+# 只想看看解析结果、不写库
+npm run collect:timetable -- --dry-run
+# 会话失效时的排障顺序：先复用缓存，再重登
+npm run collect:timetable -- --relogin
+# 手滑跳过一整周时，用已知日期钉住第 1 周周一
+npm run collect:timetable -- --week1 2026-08-24
 ```
 
-调试用参数：`--save-raw` 存原始 HTML 到 `data/board/raw/`，`--from-html <file>` 离线验证解析，`--dry-run` 不落盘。
+调试用参数：`--save-raw` 存原始 HTML 到 `data/board/raw/`，`--from-html <file>` 离线验证解析，`--dry-run` 不落盘，
+`--file <xskcb 响应 json>` 离线跑课表解析。
 
 ## 五、还没做完 / 待确认
 
-- [ ] 公文通真实列表页的选择器需要用一份真实 HTML 校准（当前按特征匹配，能跑但可能漏条目）
-- [ ] 详情页正文容器 `parseDetail` 的 `class` 匹配是猜的，需实页验证
-- [ ] eHall 应用枚举（登录后）→ 课表 appId
-- [ ] 创新领航讲座：确认是在公文通发通知，还是独立站点
+- [x] 公文通列表页 / 详情页解析（已用真实 HTML 校准，518 条全栏目可采）
+- [x] eHall 应用枚举（登录后）→ 课表 appId `4770397878132218`
+- [x] 课表接口打通并入库（7 门课 / 207 次上课事件）
+- [ ] 考试安排（appId `7815927872376224`）接口待摸
+- [ ] 成绩（appId `5101964191790615`）接口待摸
+- [ ] 课表事件当前 `kind=other`，等前端确定要不要加 `class` 类型再改
+- [ ] 创新领航讲座：公文通「讲座」栏目已能采到，是否另有独立报名入口待确认
