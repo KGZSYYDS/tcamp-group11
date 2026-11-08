@@ -384,6 +384,8 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
                 <option value="exam">考试</option>
                 <option value="pe">体测</option>
                 <option value="activity">活动</option>
+                <option value="meeting">会议</option>
+                <option value="deadline">截止</option>
                 <option value="other">其他</option>
               </select>
             </label>
