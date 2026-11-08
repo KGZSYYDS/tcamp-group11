@@ -175,19 +175,24 @@ export default function Dashboard() {
   if (!session) return <LoginPanel />;
 
   return (
-    <main className="mx-auto max-w-4xl px-4 py-8">
-      <header className="mb-6 flex items-end justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-600 shadow-md shadow-indigo-200">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <main className="mx-auto max-w-4xl px-4 py-2 sm:py-6 lg:py-8">
+      <header className="mb-2 flex items-center justify-between sm:mb-6">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 shadow-md shadow-indigo-200 sm:h-11 sm:w-11 sm:rounded-2xl">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="sm:hidden">
+              <rect x="3" y="4" width="18" height="18" rx="3" />
+              <path d="M16 2v4M8 2v4M3 10h18" />
+              <path d="M9 16l2 2 4-4" />
+            </svg>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="hidden sm:block">
               <rect x="3" y="4" width="18" height="18" rx="3" />
               <path d="M16 2v4M8 2v4M3 10h18" />
               <path d="M9 16l2 2 4-4" />
             </svg>
           </div>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">深大日历</h1>
-            <p className="mt-0.5 text-sm text-gray-500">作业、签到、考试、体测——与你有关的每一天</p>
+            <h1 className="text-lg font-bold tracking-tight sm:text-2xl">深大日历</h1>
+            <p className="mt-0.5 hidden text-sm text-gray-500 sm:block">作业、签到、考试、体测——与你有关的每一天</p>
           </div>
         </div>
         {tab === "ddl" && (
@@ -200,7 +205,7 @@ export default function Dashboard() {
         )}
       </header>
 
-      <nav className="mb-6 inline-flex max-w-full gap-1 overflow-x-auto rounded-full bg-white p-1 shadow-sm ring-1 ring-gray-100">
+      <nav className="mb-2 inline-flex max-w-full gap-1 overflow-x-auto rounded-full bg-white p-1 shadow-sm ring-1 ring-gray-100 sm:mb-4">
         {([
           ["calendar", "深大日历"],
           ["ddl", "作业 DDL"],
@@ -211,7 +216,7 @@ export default function Dashboard() {
           <button
             key={key}
             onClick={() => setTab(key)}
-            className={`whitespace-nowrap rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+            className={`whitespace-nowrap rounded-full px-3 py-1 text-xs font-medium transition-colors sm:px-4 sm:py-1.5 sm:text-sm ${
               tab === key
                 ? "bg-indigo-600 text-white shadow-sm"
                 : "text-gray-500 hover:bg-gray-100"

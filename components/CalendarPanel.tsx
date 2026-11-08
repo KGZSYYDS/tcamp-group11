@@ -231,22 +231,6 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
 
   return (
     <div className="calendar-app">
-      <header className="cal-topbar">
-        <div className="top-tools">
-          <button type="button" className="icon-button" aria-label="搜索日程" onClick={() => open({ kind: "search" })}>
-            <Search size={20} />
-          </button>
-          <button
-            type="button"
-            className="icon-button add-quick"
-            aria-label="新建日程"
-            onClick={() => open({ kind: "add" })}
-          >
-            <Plus size={20} />
-          </button>
-        </div>
-      </header>
-
       <div className="date-controls">
         <div className="date-navigation">
           <button type="button" className="icon-button" aria-label="上一时段" onClick={() => navigate(-1)}>
@@ -258,6 +242,17 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
           </button>
           <button type="button" className="today-button" onClick={() => setSelected(startOfToday())}>
             今天
+          </button>
+          <button type="button" className="icon-button nav-action" aria-label="搜索日程" onClick={() => open({ kind: "search" })}>
+            <Search size={18} />
+          </button>
+          <button
+            type="button"
+            className="icon-button nav-action add-quick"
+            aria-label="新建日程"
+            onClick={() => open({ kind: "add" })}
+          >
+            <Plus size={18} />
           </button>
         </div>
 

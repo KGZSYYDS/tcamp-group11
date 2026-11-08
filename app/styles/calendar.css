@@ -342,9 +342,9 @@
 .calendar-app .week-info{padding:16px 11px;font-size:9px;gap:5px}
 .calendar-app .week-info>span:first-child{font-size:9px}
 .calendar-app .week-info>span:last-child{display:none}
-.calendar-app .week-scroll{max-height:650px}
-.calendar-app .week-grid{grid-template-columns:25px repeat(7,minmax(0,1fr));padding:0 4px 12px}
-.calendar-app .week-label{font-size:9px;height:60px}
+  .calendar-app .week-scroll{max-height:480px}
+  .calendar-app .week-grid{grid-template-columns:25px repeat(7,minmax(0,1fr));padding:0 4px 12px}
+  .calendar-app .week-label{font-size:9px;height:52px}
 .calendar-app .week-label strong{font-size:16px}
 .calendar-app .week-label.selected strong{padding:2px 6px}
 .calendar-app .period-column>div{font-size:10px}
@@ -548,37 +548,36 @@
 }
 @media(max-width:620px) {
   .calendar-app .topbar { height:68px; }
-  .calendar-app .greeting { margin:14px 0 20px; }
-  .calendar-app h1 { font-size:25px; letter-spacing:-.8px; font-weight:650; }
-  .calendar-app .date-eyebrow { font-size:11px; margin-bottom:7px; }
-  .calendar-app .date-controls { display:flex; align-items:stretch; flex-direction:column; gap:10px; margin-bottom:15px; }
-  .calendar-app .date-navigation { width:100%; gap:2px; }
-  .calendar-app .date-navigation h2 { font-size:16px; min-width:104px; }
-  .calendar-app .date-navigation .icon-button { min-width:34px; height:36px; }
-  .calendar-app .today-button { margin-left:auto; min-height:34px; min-width:48px; font-size:11px; }
-  .calendar-app .filter-group { justify-content:flex-start; gap:7px; }
-  .calendar-app .filter-group>button:not(.icon-button) { font-size:11px; padding:7px 13px; min-height:36px; gap:6px; }
-  .calendar-app .filter-group .icon-button { margin-left:auto; min-width:36px; height:36px; }
-  .calendar-app .week-ribbon { margin-bottom:14px; border-radius:13px; }
-  .calendar-app .week-ribbon button { padding:7px 0 6px; }
-  .calendar-app .week-ribbon strong { font-size:17px; }
+  .calendar-app .date-controls { display:flex; align-items:stretch; flex-direction:column; gap:6px; margin-bottom:8px; }
+  .calendar-app .date-navigation { width:100%; gap:2px; flex-wrap:nowrap; }
+  .calendar-app .date-navigation h2 { font-size:15px; min-width:0; flex:1 1 auto; text-align:center; }
+  .calendar-app .date-navigation .icon-button { min-width:32px; height:34px; }
+  .calendar-app .today-button { margin-left:4px; min-height:34px; min-width:44px; font-size:11px; padding:4px 10px; }
+  .calendar-app .date-navigation .nav-action { margin-left:4px; min-width:34px; height:34px; }
+  .calendar-app .date-navigation .nav-action:first-of-type { margin-left:auto; }
+  .calendar-app .filter-group { justify-content:flex-start; gap:5px; flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .calendar-app .filter-group>button:not(.icon-button) { font-size:11px; padding:6px 10px; min-height:32px; gap:4px; flex-shrink:0; }
+  .calendar-app .filter-group .icon-button { margin-left:auto; min-width:34px; height:32px; flex-shrink:0; }
+  .calendar-app .week-ribbon { margin-bottom:8px; border-radius:12px; padding:4px; gap:3px; }
+  .calendar-app .week-ribbon button { padding:5px 0 4px; }
+  .calendar-app .week-ribbon strong { font-size:15px; }
   .calendar-app .day-highlight { border-radius:9px; }
-  .calendar-app .clock-card { border-radius:20px; padding:16px 17px; }
-  .calendar-app .clock-card-top { font-size:11px; }
-  .calendar-app .period-switch button { min-height:30px; padding:5px 10px; font-size:10px; }
-  .calendar-app .clock-face-wrap { width:min(100%,268px); margin:7px auto 0; }
+  .calendar-app .clock-card { border-radius:18px; padding:12px 14px; }
+  .calendar-app .clock-card-top { font-size:11px; margin-bottom:4px; }
+  .calendar-app .period-switch button { min-height:28px; padding:4px 9px; font-size:10px; }
+  .calendar-app .clock-face-wrap { width:min(100%,240px); margin:4px auto 0; }
   .calendar-app .clock-svg { width:100%; }
-  .calendar-app .digital-clock { font-size:20px; gap:2px; }
-  .calendar-app .clock-legend { margin:-2px 0 13px; font-size:10px; gap:18px; }
+  .calendar-app .digital-clock { font-size:18px; gap:2px; }
+  .calendar-app .clock-legend { margin:-2px 0 8px; font-size:10px; gap:14px; }
   .calendar-app .clock-bottom { padding:12px; }
   .calendar-app .clock-bottom strong { font-size:11px; }
   .calendar-app .clock-bottom span { font-size:9px; line-height:1.6; }
   .calendar-app .clock-layout { gap:22px; }
   .calendar-app .agenda { border:0; background:transparent; padding:0; }
-  .calendar-app .section-title h2 { font-size:17px; }
-  .calendar-app .agenda-list { border:1px solid var(--line); border-radius:17px; padding:0 14px; }
-  .calendar-app .event-row { min-height:100px; padding:18px 0; }
-  .calendar-app .event-info h3 { font-size:14px; }
+  .calendar-app .section-title h2 { font-size:15px; }
+  .calendar-app .agenda-list { border:1px solid var(--line); border-radius:14px; padding:0 12px; }
+  .calendar-app .event-row { min-height:72px; padding:12px 0; }
+  .calendar-app .event-info h3 { font-size:13px; }
   .calendar-app .event-type { font-size:10px; }
   .calendar-app .breathing-space { padding:13px; }
   .calendar-app .breathing-space strong { font-size:12px; }
@@ -592,35 +591,40 @@
   .calendar-app .notice-copy p { font-size:11px; }
   .calendar-app .notice-copy>small { font-size:10px; }
   .calendar-app .notice-add { right:14px; bottom:15px; min-height:34px; }
-  .calendar-app .month-heading { padding:19px 16px 11px; }
-  .calendar-app .month-heading>strong { font-size:35px; }
-  .calendar-app .month-number { min-width:38px; min-height:38px; border-radius:11px; }
-  .calendar-app .month-cell { min-height:56px; padding:4px 1px; }
-  .calendar-app .month-grid { padding:0 8px 14px; }
+  .calendar-app .month-heading { padding:12px 14px 6px; }
+  .calendar-app .month-heading>strong { font-size:28px; }
+  .calendar-app .month-heading>strong span { font-size:11px; }
+  .calendar-app .month-number { min-width:34px; min-height:34px; border-radius:10px; font-size:13px; }
+  .calendar-app .month-cell { min-height:48px; padding:3px 1px; }
+  .calendar-app .month-grid { padding:0 6px 10px; }
   .calendar-app .month-dots { margin-top:4px; }
-  .calendar-app .month-selected { padding:12px 16px 4px; }
-  .calendar-app .month-selected .event-row { min-height:94px; }
-  .calendar-app .month-selected .section-title h3 { font-size:13px; }
+  .calendar-app .month-selected { padding:10px 14px 4px; }
+  .calendar-app .month-selected .event-row { min-height:68px; }
+  .calendar-app .month-selected .section-title h3 { font-size:12px; }
   .calendar-app .month-selected .subtle { font-size:10px; }
-  .calendar-app .week-info { min-height:60px; padding:10px; }
+  .calendar-app .month-selected-scroll { max-height:300px; }
+  .calendar-app .week-info { min-height:48px; padding:8px 10px; }
   .calendar-app .week-info>span:first-child { font-size:10px; }
   .calendar-app .semester-note { display:none; }
   .calendar-app .density-switch button { min-width:42px; min-height:30px; padding:4px 8px; }
   .calendar-app .course-block { padding:7px 3px; }
   .calendar-app .course-block small { font-size:9px; }
-            .calendar-app .timeline-heading { padding:17px 16px; }
-  .calendar-app .timeline-scroll { height:570px; }
+            .calendar-app .timeline-heading { padding:12px 14px; }
+  .calendar-app .timeline-scroll { height:460px; }
   .calendar-app .timeline-date strong { color:#414e77; }
   .calendar-app .timeline-event h3 { font-size:13px; }
   .calendar-app .timeline-event>span { font-size:10px; }
-  .calendar-app .dock-area { width:344px; bottom:max(10px,env(safe-area-inset-bottom,0px)); }
-  .calendar-app .dock-area:before { border-radius:24px; }
+  .calendar-app .dock-area { width:320px; bottom:max(8px,env(safe-area-inset-bottom,0px)); }
+  .calendar-app .dock-area:before { border-radius:22px; }
+  .calendar-app .dock-caption { display:none; }
+  .calendar-app .page-footer { display:none; }
   .calendar-app .dialog { padding-bottom:calc(22px + env(safe-area-inset-bottom,0px)); }
-  .calendar-app .toast { bottom:calc(110px + env(safe-area-inset-bottom,0px)); }
+  .calendar-app .toast { bottom:calc(100px + env(safe-area-inset-bottom,0px)); }
 }
 @media(pointer:coarse) {
-  .calendar-app .icon-button,.calendar-app .date-navigation .icon-button,.calendar-app .filter-group .icon-button { min-width:44px; height:44px; }
-  .calendar-app .period-switch button,.calendar-app .density-switch button,.calendar-app .today-button,.calendar-app .filter-group>button:not(.icon-button),.calendar-app .notice-add { min-height:44px; }
+  .calendar-app .icon-button,.calendar-app .filter-group .icon-button { min-width:40px; height:40px; }
+  .calendar-app .date-navigation .icon-button { min-width:34px; height:36px; }
+  .calendar-app .period-switch button,.calendar-app .density-switch button,.calendar-app .today-button,.calendar-app .filter-group>button:not(.icon-button),.calendar-app .notice-add { min-height:36px; }
   .calendar-app .month-number { min-width:44px; min-height:44px; }
   .calendar-app .mobile-add { width:44px; height:44px; }
   .calendar-app .month-cell { min-height:62px; }
@@ -651,15 +655,7 @@
   --accent:#ed804a;
   --ease-out:cubic-bezier(.23,1,.32,1);
 }
-.calendar-app .cal-topbar {
-  height: 56px;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  border-bottom: 1px solid var(--line);
-  margin-bottom: 16px;
-}
-.calendar-app .cal-topbar .top-tools { gap: 10px; }
+/* 搜索/新建按钮已合并到 date-navigation，cal-topbar 不再使用 */
 .calendar-app .add-quick {
   background: var(--deep);
   color: #fff;
@@ -668,8 +664,10 @@
   .calendar-app .add-quick:hover { background: #2a3ac9; }
 }
 .calendar-app .add-quick:active { transform: scale(.95); }
-/* 新建按钮已在顶部栏，不再需要移动端浮动按钮 */
-.calendar-app .mobile-add { display: none !important; }
+/* date-navigation 里的搜索/新建按钮靠右排列 */
+.calendar-app .date-navigation .nav-action { margin-left: auto; }
+.calendar-app .date-navigation .nav-action:first-of-type { margin-left: 8px; }
+.calendar-app .date-navigation .add-quick { min-width: 36px; }
 .calendar-app .cal-loading,
 .calendar-app .cal-error {
   margin: 12px 0;
