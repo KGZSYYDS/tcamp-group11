@@ -63,6 +63,7 @@ const LIST_ONLY = has("list");
 const DRY = has("dry-run");
 const NO_DB = has("no-db") || DRY;
 const MEETINGS_ONLY = has("meetings-only");
+const FORCE_XH = has("force-xh");
 const DAYS = Number(opt("days", "7")) || 7;
 const GROUPS_ARG = opt("groups");
 const XH = opt("xh");
@@ -143,28 +144,61 @@ function loadSources() {
   );
 }
 
-/** 学号：命令行 > 本地缓存 > 办事大厅会话 */
+/**
+ * 从本地已有的大厅 dump 里读真实学号，纯离线、毫秒级。
+ *
+ * 为什么不调 getEhallJar：那会走一遍完整登录（含重登），实测能把脚本卡住
+ * 几分钟不返回。核对学号是顺手做的一道保险，不值得为它挂上登录流程。
+ * 本地没有 dump 就跳过核对——真正的兜底是 10 位格式校验 + 用户自己确认。
+ */
+function studentIdFromLocalDump() {
+  const files = [
+    path.resolve("data/board/raw/userinfo.json"),
+    path.resolve("data/tmp/user2.json"),
+    path.resolve("data/tmp/user.json"),
+  ];
+  for (const f of files) {
+    try {
+      // 只认 "userId" 这个键。同页还有 `widget-08001511020018-01` 这类控件 id，
+      // 随手用 \d{10} 扫全文会把它当成学号（踩过：整套会议归属哈希全错，
+      // 用户拿真学号怎么认领都对不上，只能整批删了重采）。
+      const m = fs.readFileSync(f, "utf-8").match(/"userId"\s*:\s*"(\d{6,20})"/);
+      if (m) return m[1];
+    } catch {
+      // 没有这个文件就跳过
+    }
+  }
+  return null;
+}
+
+/** 学号：命令行 > 本地缓存 > 本地 dump */
 async function resolveStudentId() {
-  if (XH) return XH.trim();
+  if (XH) {
+    const v = XH.trim();
+    if (!/^\d{10}$/.test(v)) {
+      throw new Error(`--xh "${v}" 不像学号（深大学号是 10 位纯数字），确认后重跑。`);
+    }
+    // 归错人的代价很高：source_url 里的哈希错了，用户拿真学号永远认领不到，
+    // 只能整批删了重采。本地有大厅 dump 就顺手对一遍。
+    const real = studentIdFromLocalDump();
+    if (real && real !== v && !FORCE_XH) {
+      throw new Error(
+        `--xh ${v} 和本地登录信息里的学号 ${real} 不一致。\n` +
+          `归属哈希写错会导致这批事件谁都无法认领。确认要用 ${v} 就加 --force-xh，否则改成 --xh ${real}。`
+      );
+    }
+    return v;
+  }
   const cached = path.resolve("data/.owner-xh");
   if (fs.existsSync(cached)) {
     const v = fs.readFileSync(cached, "utf-8").trim();
     if (/^\d{6,20}$/.test(v)) return v;
   }
-  try {
-    const { getEhallJar } = await import("./lib/ehall.mjs");
-    const { jar } = await getEhallJar({});
-    const res = await fetch("https://ehall.szu.edu.cn/jsonp/userInfo.json", {
-      headers: { Cookie: jar.headerFor("https://ehall.szu.edu.cn/") },
-    });
-    const m = (await res.text()).match(/"userId"\s*:\s*"?(\d{6,20})"?/);
-    if (m) {
-      fs.mkdirSync(path.dirname(cached), { recursive: true });
-      fs.writeFileSync(cached, m[1], "utf-8");
-      return m[1];
-    }
-  } catch {
-    // 没会话也不致命，下面会提示用 --xh
+  const fromDump = studentIdFromLocalDump();
+  if (fromDump) {
+    fs.mkdirSync(path.dirname(cached), { recursive: true });
+    fs.writeFileSync(cached, fromDump, "utf-8");
+    return fromDump;
   }
   return null;
 }

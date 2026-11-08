@@ -204,28 +204,38 @@ export async function claimTimetable(studentId: string, userId: string): Promise
   if (!/^\d{6,20}$/.test(xh)) throw new Error("请填写正确的学号（纯数字）");
   if (!userId) throw new Error("请先登录再认领");
 
-  const qs = new URLSearchParams({
-    source: "eq.ehall",
-    owner_id: "eq.anon",
-    // 只认领这个学号的课表；* 由 PostgREST 当成通配符
-    source_url: `like.ehall://xskcb/${await ownerKeyOf(xh)}/*`,
-    select: "id",
-  });
+  const key = await ownerKeyOf(xh);
 
-  const res = await fetch(`${publicConfig.endpoint}/.cloud/database/rest/events?${qs.toString()}`, {
-    method: "PATCH",
-    headers: {
-      "x-wb-webapp-access-key": publicConfig.publishableKey,
-      "Content-Type": "application/json",
-      Prefer: "return=representation",
-    },
-    body: JSON.stringify({ owner_id: userId }),
-  });
-  if (!res.ok) {
-    throw new Error(`认领失败 ${res.status}：${(await res.text()).slice(0, 120)}`);
+  // 两份数据用的是同一套哈希归属：课表是 ehall://xskcb/<hash>/…，
+  // 群聊提取的会议是 wechat://<hash>/…。认领时要一起改，否则填完学号
+  // 只有课表出现、会议仍然挂在 anon 名下看不到。
+  const prefixes = [`ehall://xskcb/${key}/`, `wechat://${key}/`];
+
+  let total = 0;
+  for (const prefix of prefixes) {
+    const qs = new URLSearchParams({
+      owner_id: "eq.anon",
+      // 只认领这个学号的那批；* 由 PostgREST 当成通配符
+      source_url: `like.${prefix}*`,
+      select: "id",
+    });
+
+    const res = await fetch(`${publicConfig.endpoint}/.cloud/database/rest/events?${qs.toString()}`, {
+      method: "PATCH",
+      headers: {
+        "x-wb-webapp-access-key": publicConfig.publishableKey,
+        "Content-Type": "application/json",
+        Prefer: "return=representation",
+      },
+      body: JSON.stringify({ owner_id: userId }),
+    });
+    if (!res.ok) {
+      throw new Error(`认领失败 ${res.status}：${(await res.text()).slice(0, 120)}`);
+    }
+    const rows = await res.json();
+    total += Array.isArray(rows) ? rows.length : 0;
   }
-  const rows = await res.json();
-  return Array.isArray(rows) ? rows.length : 0;
+  return total;
 }
 
 /** 公共事件按来源链接查重：同一通知任何人采集过就不再重复入库 */
