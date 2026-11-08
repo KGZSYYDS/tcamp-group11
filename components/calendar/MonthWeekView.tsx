@@ -109,16 +109,18 @@ export function MonthView({
             时钟视图 <span aria-hidden="true">↗</span>
           </button>
         </div>
-        {selectedEvents.length === 0 ? (
-          <div className="empty">
-            <Coffee />
-            <h3>这天还没有安排</h3>
-            <p>点右上角「新建日程」，记下一件想做的事。</p>
-          </div>
-        ) : null}
-        {selectedEvents.map((event) => (
-          <EventRow key={event.id} event={event} onClick={() => onEvent(event)} />
-        ))}
+        <div className="month-selected-scroll">
+          {selectedEvents.length === 0 ? (
+            <div className="empty">
+              <Coffee />
+              <h3>这天还没有安排</h3>
+              <p>点右上角「新建日程」，记下一件想做的事。</p>
+            </div>
+          ) : null}
+          {selectedEvents.map((event) => (
+            <EventRow key={event.id} event={event} onClick={() => onEvent(event)} />
+          ))}
+        </div>
       </div>
     </section>
   );
