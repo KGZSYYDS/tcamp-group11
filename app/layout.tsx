@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
+import "@fontsource-variable/manrope";
 import "./globals.css";
+import "./styles/calendar.css";
 
 export const metadata: Metadata = {
-  title: "深大日历",
+  title: "深大日程助手",
   description: "作业、签到、考试、体测——与你有关的每一天",
 };
 

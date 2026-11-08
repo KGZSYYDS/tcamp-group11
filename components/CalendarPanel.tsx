@@ -1,622 +1,543 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import type { CalEvent, Checkin, Ddl, EventKind, Profile } from "@/lib/types";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { motion, AnimatePresence } from "motion/react";
 import {
-  createEvent,
-  deleteEvent,
-  getProfile,
-  listCheckins,
-  listDdls,
-  listEvents,
-} from "@/lib/data";
+  AlignVerticalJustifyStart,
+  CalendarDays,
+  CalendarRange,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Clock3,
+  Coffee,
+  Plus,
+  Search,
+  Settings2,
+  SlidersHorizontal,
+  Sparkles,
+} from "lucide-react";
+import type { AgendaEvent, AgendaVisual } from "@/lib/agenda";
+import { dateKey } from "@/lib/agenda";
+import { filterByProfile, groupByDate, useAgenda } from "@/lib/useAgenda";
+import ClockFace, { EventRow, VISUAL_META } from "./calendar/ClockFace";
+import { MonthView, WeekView } from "./calendar/MonthWeekView";
+import TimelineView from "./calendar/TimelineView";
+import EventDialog from "./calendar/EventDialog";
+import type { DialogState, EventFormData } from "./calendar/EventDialog";
+import Dock from "./calendar/ui/Dock";
+import { AnimatedBackground } from "./calendar/ui/AnimatedBackground";
+import { SlidingNumber } from "./calendar/ui/SlidingNumber";
+import { TextMorph } from "./calendar/ui/TextMorph";
+import { useReducedMotion } from "./calendar/ui/useMotionPreference";
 
-type ItemKind = EventKind | "ddl" | "checkin";
+type ViewId = "clock" | "month" | "week" | "timeline";
 
-interface CalItem {
-  id: string;
-  kind: ItemKind;
-  title: string;
-  at: Date;
-  /** 时间段事件的结束日期；续日展示时标记 */
-  endAt?: Date;
-  continued?: boolean;
-  link?: string;
-  allDay: boolean;
-  detail?: string;
-  deletable: boolean;
-  scope: string;
-  college?: string;
-  grade?: string;
-}
+const VIEWS: { id: ViewId; label: string; icon: typeof Clock3 }[] = [
+  { id: "clock", label: "时钟", icon: Clock3 },
+  { id: "month", label: "月历", icon: CalendarDays },
+  { id: "week", label: "课表", icon: CalendarRange },
+  { id: "timeline", label: "时间轴", icon: AlignVerticalJustifyStart },
+];
 
-const KIND_META: Record<ItemKind, { label: string; chip: string; badge: string }> = {
-  exam: { label: "考试", chip: "bg-red-500", badge: "bg-red-50 text-red-600" },
-  ddl: { label: "DDL", chip: "bg-amber-500", badge: "bg-amber-50 text-amber-600" },
-  checkin: { label: "签到", chip: "bg-indigo-500", badge: "bg-indigo-50 text-indigo-600" },
-  pe: { label: "体测", chip: "bg-emerald-500", badge: "bg-emerald-50 text-emerald-600" },
-  activity: { label: "活动", chip: "bg-violet-500", badge: "bg-violet-50 text-violet-600" },
-  other: { label: "其他", chip: "bg-gray-400", badge: "bg-gray-100 text-gray-500" },
+const FILTERS: AgendaVisual[] = ["course", "ddl", "notice", "personal"];
+
+const HEADLINES: Record<ViewId, string> = {
+  clock: "今天，留给重要的事。",
+  month: "把日子，慢慢排好。",
+  week: "这一周，心里有数。",
+  timeline: "沿着时间，往前走。",
 };
 
-const SCOPE_LABEL: Record<string, string> = {
-  personal: "仅自己",
-  school: "全校",
-  college: "学院",
-  grade: "年级",
-  undergraduate: "本科生",
-  postgraduate: "硕士生",
-  doctoral: "博士生",
-};
+const HIDDEN_KEY = "szu-cal-hidden";
+const INTEREST_KEY = "szu-cal-interests";
+const DEFAULT_INTERESTS = ["学术讲座", "竞赛实践", "校园活动"];
 
-const WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"];
-
-function dateKey(d: Date) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+function addDays(date: Date, n: number) {
+  const result = new Date(date);
+  result.setDate(result.getDate() + n);
+  return result;
 }
 
-function todayInput() {
-  return dateKey(new Date());
+function startOfToday() {
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function readJson<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 export default function CalendarPanel({ currentUserId }: { currentUserId: string }) {
-  const [items, setItems] = useState<CalItem[]>([]);
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const { events, profile, loaded, error, createAgendaEvent, removeAgendaEvent } =
+    useAgenda(currentUserId);
+
+  const [view, setView] = useState<ViewId>("clock");
+  const [quickSwitch, setQuickSwitch] = useState(false);
+  const [selected, setSelected] = useState<Date>(startOfToday);
+  const [enabled, setEnabled] = useState<AgendaVisual[]>([...FILTERS]);
   const [onlyRelated, setOnlyRelated] = useState(true);
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
+  const [interests, setInterests] = useState<string[]>(DEFAULT_INTERESTS);
+  const [dialog, setDialog] = useState<DialogState | null>(null);
+  const [toast, setToast] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState("");
+  const reduced = useReducedMotion();
 
+  // 本地偏好放在挂载后读取，避免服务端渲染时访问 localStorage
   useEffect(() => {
-    try {
-      setHiddenIds(JSON.parse(localStorage.getItem("szu-cal-hidden") || "[]"));
-    } catch {
-      setHiddenIds([]);
-    }
+    setHiddenIds(readJson<string[]>(HIDDEN_KEY, []));
+    setInterests(readJson<string[]>(INTEREST_KEY, DEFAULT_INTERESTS));
   }, []);
 
-  function hideItem(id: string) {
-    setHiddenIds((prev) => {
-      const next = [...prev, id];
-      localStorage.setItem("szu-cal-hidden", JSON.stringify(next));
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(""), 3000);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
+  /** 类别开关 + 相关性 + 已隐藏，三层过滤后交给视图 */
+  const visibleEvents = useMemo(() => {
+    const byProfile = filterByProfile(events, profile, onlyRelated, hiddenIds);
+    return byProfile.filter((event) => enabled.includes(event.visual));
+  }, [events, profile, onlyRelated, hiddenIds, enabled]);
+
+  const byDay = useMemo(() => groupByDate(visibleEvents), [visibleEvents]);
+  const eventsFor = useMemo(
+    () => (date: Date) => byDay.get(dateKey(date)) || [],
+    [byDay]
+  );
+
+  const todayEvents = eventsFor(selected);
+  const today = dateKey(new Date());
+  const monday = addDays(selected, -((selected.getDay() + 6) % 7));
+
+  // 全部事件（不受筛选影响）中的今日待办数，用于顶部提示
+  const allTodayCount = useMemo(
+    () => events.filter((event) => event.date === dateKey(selected)).length,
+    [events, selected]
+  );
+
+  function switchView(id: ViewId, instant = false) {
+    setQuickSwitch(instant);
+    setView(id);
+  }
+
+  function open(next: DialogState) {
+    setFormError("");
+    setDialog(next);
+  }
+
+  function navigate(delta: number) {
+    if (view === "month") {
+      setSelected(new Date(selected.getFullYear(), selected.getMonth() + delta, 1));
+      return;
+    }
+    setSelected(addDays(selected, delta * (view === "week" ? 7 : 1)));
+  }
+
+  function toggleFilter(id: AgendaVisual) {
+    setEnabled((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
+  function toggleInterest(tag: string) {
+    setInterests((prev) => {
+      const next = prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag];
+      localStorage.setItem(INTEREST_KEY, JSON.stringify(next));
       return next;
     });
   }
 
+  function hideEvent(event: AgendaEvent) {
+    setHiddenIds((prev) => {
+      const next = [...prev, event.id];
+      localStorage.setItem(HIDDEN_KEY, JSON.stringify(next));
+      return next;
+    });
+    setToast("已隐藏，可在筛选项右侧恢复");
+  }
+
   function unhideAll() {
     setHiddenIds([]);
-    localStorage.setItem("szu-cal-hidden", "[]");
-  }
-  const [loaded, setLoaded] = useState(false);
-  const [errorMsg, setErrorMsg] = useState("");
-  const [cursor, setCursor] = useState(() => {
-    const d = new Date();
-    return new Date(d.getFullYear(), d.getMonth(), 1);
-  });
-  const [selected, setSelected] = useState(todayInput());
-  const [showForm, setShowForm] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [form, setForm] = useState({
-    kind: "exam" as EventKind,
-    title: "",
-    date: todayInput(),
-    endDate: "",
-    link: "",
-    allDay: false,
-    time: "09:00",
-    course: "",
-    location: "",
-    note: "",
-    scope: "personal",
-    college: "",
-    grade: "",
-  });
-
-  const refresh = useCallback(async () => {
-    try {
-      const [events, ddls, checkins, p] = await Promise.all([
-        listEvents(),
-        listDdls(),
-        listCheckins(),
-        getProfile().catch(() => null),
-      ]);
-      setProfile(p);
-      const merged: CalItem[] = [
-        ...events.map((e: CalEvent) => ({
-          id: e.id,
-          kind: e.kind as ItemKind,
-          title: e.title,
-          at: new Date(e.startAt),
-          endAt: e.endAt ? new Date(e.endAt) : undefined,
-          link: e.link,
-          allDay: e.allDay,
-          detail: [e.course, e.location, e.note].filter(Boolean).join(" · "),
-          deletable: e.scope === "personal" || e.ownerId === currentUserId,
-          scope: e.scope,
-          college: e.college,
-          grade: e.grade,
-        })),
-        ...ddls.map((d: Ddl) => ({
-          id: d.id,
-          kind: "ddl" as ItemKind,
-          title: `${d.course} · ${d.title}${d.status === "done" ? "（已完成）" : ""}`,
-          at: new Date(d.dueAt),
-          allDay: false,
-          detail: d.note,
-          deletable: false,
-          scope: "personal",
-        })),
-        ...checkins.map((c: Checkin) => ({
-          id: c.id,
-          kind: "checkin" as ItemKind,
-          title: `${c.course}${c.teacher ? ` · ${c.teacher}` : ""} 签到`,
-          at: new Date(c.occurredAt),
-          allDay: false,
-          detail: c.note,
-          deletable: false,
-          scope: "personal",
-        })),
-      ];
-      setItems(merged);
-      setErrorMsg("");
-    } catch (e) {
-      setErrorMsg(e instanceof Error ? e.message : "数据加载失败");
-    }
-    setLoaded(true);
-  }, [currentUserId]);
-
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
-
-  /** 相关性过滤：个人数据始终显示；公共事件开启「只看与我相关」时按画像匹配 */
-  const visibleItems = useMemo(() => {
-    const userLevel = profile?.level || "undergraduate";
-    return items.filter((item) => {
-      if (hiddenIds.includes(item.id)) return false;
-      if (item.scope === "personal" || item.scope === "school") return true;
-      if (!onlyRelated) return true;
-      if (item.scope === "college") {
-        return Boolean(profile?.college && item.college === profile.college);
-      }
-      if (item.scope === "grade") {
-        return Boolean(profile?.grade && item.grade === profile.grade);
-      }
-      if (item.scope === "undergraduate") return userLevel === "undergraduate";
-      if (item.scope === "postgraduate") return userLevel === "postgraduate";
-      if (item.scope === "doctoral") return userLevel === "doctoral";
-      return true;
-    });
-  }, [items, onlyRelated, profile, hiddenIds]);
-
-  const byDay = useMemo(() => {
-    const map = new Map<string, CalItem[]>();
-    for (const item of visibleItems) {
-      // 时间段事件展开到范围内每一天（最多 32 天，防异常数据）
-      const days: { key: string; continued: boolean }[] = [];
-      if (item.endAt && item.endAt.getTime() > item.at.getTime()) {
-        const start = new Date(item.at.getFullYear(), item.at.getMonth(), item.at.getDate());
-        const end = new Date(item.endAt.getFullYear(), item.endAt.getMonth(), item.endAt.getDate());
-        let i = 0;
-        for (const d = new Date(start); d <= end && i < 32; d.setDate(d.getDate() + 1), i++) {
-          days.push({ key: dateKey(d), continued: i > 0 });
-        }
-      } else {
-        days.push({ key: dateKey(item.at), continued: false });
-      }
-      for (const day of days) {
-        const list = map.get(day.key) || [];
-        list.push(day.continued ? { ...item, continued: true } : item);
-        map.set(day.key, list);
-      }
-    }
-    for (const list of map.values()) {
-      list.sort((a, b) => Number(a.allDay) - Number(b.allDay) || a.at.getTime() - b.at.getTime());
-    }
-    return map;
-  }, [visibleItems]);
-
-  const cells = useMemo(() => {
-    const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
-    const offset = (first.getDay() + 6) % 7;
-    const start = new Date(first);
-    start.setDate(start.getDate() - offset);
-    return Array.from({ length: 42 }, (_, i) => {
-      const d = new Date(start);
-      d.setDate(d.getDate() + i);
-      return { date: d, key: dateKey(d), inMonth: d.getMonth() === cursor.getMonth() };
-    });
-  }, [cursor]);
-
-  const today = todayInput();
-  const selectedItems = byDay.get(selected) || [];
-  const profileIncomplete = onlyRelated && (!profile?.college || !profile?.grade);
-
-  function shiftMonth(delta: number) {
-    setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + delta, 1));
+    localStorage.setItem(HIDDEN_KEY, "[]");
+    setToast("已恢复全部隐藏的日程");
   }
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!form.title.trim() || !form.date) return;
-    if (form.scope === "college" && !form.college.trim()) {
-      alert("请选择或填写学院名称");
-      return;
-    }
-    if (form.scope === "grade" && !form.grade.trim()) {
-      alert("请选择或填写年级");
-      return;
-    }
+  async function handleSave(data: EventFormData) {
     setSubmitting(true);
-    const startAt = form.allDay
-      ? `${form.date}T00:00:00`
-      : `${form.date}T${form.time || "09:00"}:00`;
+    setFormError("");
     try {
-      await createEvent({
-        kind: form.kind,
-        title: form.title,
-        startAt: new Date(startAt).toISOString(),
-        endAt: form.endDate
-          ? new Date(`${form.endDate}T23:59:00`).toISOString()
-          : undefined,
-        link: form.link || undefined,
-        allDay: form.allDay,
-        course: form.course || undefined,
-        location: form.location || undefined,
-        note: form.note || undefined,
-        scope: form.scope,
-        college: form.scope === "college" ? form.college : undefined,
-        grade: form.scope === "grade" ? form.grade : undefined,
+      await createAgendaEvent({
+        kind: data.kind,
+        title: data.title.trim(),
+        date: data.date,
+        start: data.start,
+        end: data.end,
+        location: data.location.trim() || undefined,
+        note: data.note.trim() || undefined,
+        course: data.course.trim() || undefined,
+        scope: data.scope,
       });
-      setForm({ ...form, title: "", course: "", location: "", note: "", scope: "personal" });
-      setShowForm(false);
-      setSelected(form.date);
-      await refresh();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "保存失败");
+      setSelected(new Date(`${data.date}T00:00:00`));
+      setDialog(null);
+      setToast("日程已保存");
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : "保存失败");
     }
     setSubmitting(false);
   }
 
-  async function remove(id: string) {
+  async function handleDelete(event: AgendaEvent) {
     try {
-      await deleteEvent(id);
-      setItems((prev) => prev.filter((i) => i.id !== id));
+      await removeAgendaEvent(event);
+      setDialog(null);
+      setToast("已删除这条日程");
     } catch (e) {
-      alert(e instanceof Error ? e.message : "删除失败");
+      setToast(e instanceof Error ? e.message : "删除失败");
     }
   }
 
+  function searchEvents(query: string) {
+    const keyword = query.trim().toLowerCase();
+    if (!keyword) return [];
+    return visibleEvents.filter((event) =>
+      `${event.title} ${event.location} ${event.course || ""}`.toLowerCase().includes(keyword)
+    );
+  }
+
+  // 键盘 1—4 切视图，/ 打开搜索
+  const dialogOpen = Boolean(dialog);
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const target = e.target as HTMLElement | null;
+      if (dialogOpen || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (target?.matches("input,textarea,select")) return;
+      const index = ["1", "2", "3", "4"].indexOf(e.key);
+      if (index >= 0) switchView(VIEWS[index].id, true);
+      if (e.key === "/") {
+        e.preventDefault();
+        open({ kind: "search" });
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [dialogOpen]);
+
+  const dateLabel =
+    view === "month"
+      ? `${selected.getMonth() + 1} 月`
+      : view === "week"
+        ? `${monday.getMonth() + 1}.${monday.getDate()} — ${addDays(monday, 6).getMonth() + 1}.${addDays(monday, 6).getDate()}`
+        : `${selected.getMonth() + 1} 月 ${selected.getDate()} 日`;
+
+  const profileIncomplete = onlyRelated && (!profile?.college || !profile?.grade);
+
   return (
-    <div>
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => shiftMonth(-1)}
-            className="rounded-lg bg-white px-3 py-1.5 text-sm text-gray-600 shadow-sm hover:bg-gray-50"
-          >
-            ←
-          </button>
-          <h2 className="min-w-28 text-center text-lg font-bold">
-            {cursor.getFullYear()} 年 {cursor.getMonth() + 1} 月
-          </h2>
-          <button
-            onClick={() => shiftMonth(1)}
-            className="rounded-lg bg-white px-3 py-1.5 text-sm text-gray-600 shadow-sm hover:bg-gray-50"
-          >
-            →
+    <div className="calendar-app">
+      <header className="cal-topbar">
+        <div className="breadcrumb">
+          <span>我的日程</span>
+          <ChevronRight size={14} />
+          <strong>{VIEWS.find((v) => v.id === view)?.label}视图</strong>
+        </div>
+        <div className="top-tools">
+          <button type="button" className="icon-button" aria-label="搜索日程" onClick={() => open({ kind: "search" })}>
+            <Search size={20} />
           </button>
           <button
-            onClick={() => {
-              const d = new Date();
-              setCursor(new Date(d.getFullYear(), d.getMonth(), 1));
-              setSelected(todayInput());
-            }}
-            className="rounded-lg bg-white px-3 py-1.5 text-sm text-indigo-600 shadow-sm hover:bg-gray-50"
+            type="button"
+            className="icon-button"
+            aria-label="偏好设置"
+            onClick={() => open({ kind: "settings" })}
           >
+            <Settings2 size={20} />
+          </button>
+        </div>
+      </header>
+
+      <section className="greeting">
+        <div>
+          <p className="date-eyebrow">
+            {selected.getFullYear()} 年 {selected.getMonth() + 1} 月 <span>·</span>{" "}
+            {dateKey(selected) === today ? "今天" : "所选日期"}
+          </p>
+          <h1>{HEADLINES[view]}</h1>
+        </div>
+        <button type="button" className="primary add-main" onClick={() => open({ kind: "add" })}>
+          <Plus size={19} />
+          新建日程
+        </button>
+      </section>
+
+      <div className="date-controls">
+        <div className="date-navigation">
+          <button type="button" className="icon-button" aria-label="上一时段" onClick={() => navigate(-1)}>
+            <ChevronLeft size={18} />
+          </button>
+          <h2>{dateLabel}</h2>
+          <button type="button" className="icon-button" aria-label="下一时段" onClick={() => navigate(1)}>
+            <ChevronRight size={18} />
+          </button>
+          <button type="button" className="today-button" onClick={() => setSelected(startOfToday())}>
             今天
           </button>
         </div>
-        <div className="flex items-center gap-3">
-          <label className="flex items-center gap-1.5 text-sm text-gray-600">
-            <input
-              type="checkbox"
-              checked={onlyRelated}
-              onChange={(e) => setOnlyRelated(e.target.checked)}
-            />
-            只看与我相关
-          </label>
-          {hiddenIds.length > 0 && (
+
+        <div className="filter-group">
+          {FILTERS.map((id) => (
             <button
-              onClick={unhideAll}
-              className="text-xs text-amber-600 hover:underline"
+              key={id}
+              type="button"
+              aria-pressed={enabled.includes(id)}
+              onClick={() => toggleFilter(id)}
             >
+              <i style={{ background: VISUAL_META[id].dark }} />
+              {VISUAL_META[id].name}
+            </button>
+          ))}
+          <button
+            type="button"
+            className="icon-button"
+            aria-label={onlyRelated ? "正在只看与我相关" : "显示全部公共日程"}
+            aria-pressed={onlyRelated}
+            onClick={() => setOnlyRelated((v) => !v)}
+            title={onlyRelated ? "只看与我相关（点击查看全部）" : "显示全部（点击只看与我相关）"}
+          >
+            <SlidersHorizontal size={17} />
+          </button>
+          {hiddenIds.length > 0 ? (
+            <button type="button" className="unhide-button" onClick={unhideAll}>
               已隐藏 {hiddenIds.length} 条 · 恢复
             </button>
-          )}
-          <button
-            onClick={() => setShowForm((v) => !v)}
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
-          >
-            {showForm ? "收起" : "+ 添加事件"}
-          </button>
+          ) : null}
         </div>
       </div>
 
-      {profileIncomplete && (
-        <p className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
-          到「我的」Tab 完善学院和年级后，学院 / 年级公共事件才能精确匹配；未匹配的事件当前被隐藏。
-        </p>
-      )}
-
-      {showForm && (
-        <form onSubmit={submit} className="mb-6 rounded-xl bg-white p-5 shadow-sm">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="text-sm">
-              <span className="mb-1 block text-gray-600">类型</span>
-              <select
-                value={form.kind}
-                onChange={(e) => setForm({ ...form, kind: e.target.value as EventKind })}
-                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 outline-none focus:border-indigo-400"
-              >
-                <option value="exam">考试</option>
-                <option value="pe">体测</option>
-                <option value="activity">活动</option>
-                <option value="other">其他</option>
-              </select>
-            </label>
-            <label className="text-sm">
-              <span className="mb-1 block text-gray-600">标题 *</span>
-              <input
-                required
-                value={form.title}
-                onChange={(e) => setForm({ ...form, title: e.target.value })}
-                placeholder={form.kind === "exam" ? "如：线性代数期末考试" : form.kind === "pe" ? "如：1000 米体测" : "事件名称"}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 outline-none focus:border-indigo-400"
-              />
-            </label>
-            <label className="text-sm">
-              <span className="mb-1 block text-gray-600">日期 *</span>
-              <input
-                type="date"
-                required
-                value={form.date}
-                onChange={(e) => setForm({ ...form, date: e.target.value })}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 outline-none focus:border-indigo-400"
-              />
-            </label>
-            <div className="flex items-end gap-3">
-              <label className="flex-1 text-sm">
-                <span className="mb-1 block text-gray-600">时间</span>
-                <input
-                  type="time"
-                  disabled={form.allDay}
-                  value={form.time}
-                  onChange={(e) => setForm({ ...form, time: e.target.value })}
-                  className="w-full rounded-lg border border-gray-200 px-3 py-2 outline-none focus:border-indigo-400 disabled:bg-gray-50 disabled:text-gray-400"
-                />
-              </label>
-              <label className="flex items-center gap-1.5 pb-2.5 text-sm text-gray-600">
-                <input
-                  type="checkbox"
-                  checked={form.allDay}
-                  onChange={(e) => setForm({ ...form, allDay: e.target.checked })}
-                />
-                全天
-              </label>
-            </div>
-            <label className="text-sm">
-              <span className="mb-1 block text-gray-600">可见范围</span>
-              <select
-                value={form.scope}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    scope: e.target.value,
-                    college: form.college || profile?.college || "",
-                    grade: form.grade || profile?.grade || "",
-                  })
-                }
-                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 outline-none focus:border-indigo-400"
-              >
-                <option value="personal">仅自己</option>
-                <option value="school">全校（所有登录用户）</option>
-                <option value="college">指定学院</option>
-                <option value="grade">指定年级</option>
-              </select>
-            </label>
-            {form.scope === "college" && (
-              <label className="text-sm">
-                <span className="mb-1 block text-gray-600">学院名称 *</span>
-                <input
-                  value={form.college}
-                  onChange={(e) => setForm({ ...form, college: e.target.value })}
-                  placeholder="如：计算机与软件学院"
-                  className="w-full rounded-lg border border-gray-200 px-3 py-2 outline-none focus:border-indigo-400"
-                />
-              </label>
-            )}
-            {form.scope === "grade" && (
-              <label className="text-sm">
-                <span className="mb-1 block text-gray-600">年级 *</span>
-                <input
-                  value={form.grade}
-                  onChange={(e) => setForm({ ...form, grade: e.target.value })}
-                  placeholder="如：2026 级"
-                  className="w-full rounded-lg border border-gray-200 px-3 py-2 outline-none focus:border-indigo-400"
-                />
-              </label>
-            )}
-            <label className="text-sm">
-              <span className="mb-1 block text-gray-600">结束日期（时间段事件可选）</span>
-              <input
-                type="date"
-                value={form.endDate}
-                onChange={(e) => setForm({ ...form, endDate: e.target.value })}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 outline-none focus:border-indigo-400"
-              />
-            </label>
-            <label className="text-sm">
-              <span className="mb-1 block text-gray-600">预约 / 详情链接（可选）</span>
-              <input
-                type="url"
-                value={form.link}
-                onChange={(e) => setForm({ ...form, link: e.target.value })}
-                placeholder="https://..."
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 outline-none focus:border-indigo-400"
-              />
-            </label>
-            <label className="text-sm">
-              <span className="mb-1 block text-gray-600">关联课程（可选）</span>
-              <input
-                value={form.course}
-                onChange={(e) => setForm({ ...form, course: e.target.value })}
-                placeholder="如：线性代数"
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 outline-none focus:border-indigo-400"
-              />
-            </label>
-            <label className="text-sm">
-              <span className="mb-1 block text-gray-600">地点（可选）</span>
-              <input
-                value={form.location}
-                onChange={(e) => setForm({ ...form, location: e.target.value })}
-                placeholder="如：田径场 / 考场教室"
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 outline-none focus:border-indigo-400"
-              />
-            </label>
-            <label className="text-sm sm:col-span-2">
-              <span className="mb-1 block text-gray-600">备注（可选）</span>
-              <input
-                value={form.note}
-                onChange={(e) => setForm({ ...form, note: e.target.value })}
-                placeholder="需要带什么、注意事项等"
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 outline-none focus:border-indigo-400"
-              />
-            </label>
-          </div>
-          <button
-            type="submit"
-            disabled={submitting}
-            className="mt-4 rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-          >
-            保存
-          </button>
-        </form>
-      )}
-
-      {errorMsg && <p className="mb-3 text-sm text-red-500">{errorMsg}</p>}
-
-      <div className="overflow-hidden rounded-xl bg-white shadow-sm">
-        <div className="grid grid-cols-7 border-b border-gray-100 text-center text-xs text-gray-500">
-          {WEEKDAYS.map((w) => (
-            <div key={w} className="py-2">
-              {w}
-            </div>
-          ))}
-        </div>
-        <div className="grid grid-cols-7">
-          {cells.map((cell) => {
-            const dayItems = byDay.get(cell.key) || [];
-            const isSelected = cell.key === selected;
+      {view === "clock" ? (
+        <div className="week-ribbon">
+          {Array.from({ length: 7 }, (_, i) => {
+            const date = addDays(monday, i);
+            const active = dateKey(date) === dateKey(selected);
             return (
               <button
-                key={cell.key}
-                onClick={() => setSelected(cell.key)}
-                className={`min-h-20 border-b border-r border-gray-50 p-1.5 text-left align-top transition-colors sm:min-h-24 ${
-                  cell.inMonth ? "" : "bg-gray-50/60"
-                } ${isSelected ? "bg-indigo-50/60" : "hover:bg-gray-50"}`}
+                key={i}
+                type="button"
+                className={active ? "selected" : ""}
+                onClick={() => setSelected(date)}
+                aria-pressed={active}
               >
-                <span
-                  className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-xs ${
-                    cell.key === today
-                      ? "bg-indigo-600 font-bold text-white"
-                      : cell.inMonth
-                        ? "text-gray-700"
-                        : "text-gray-400"
-                  }`}
-                >
-                  {cell.date.getDate()}
-                </span>
-                <div className="mt-1 space-y-0.5">
-                  {dayItems.slice(0, 3).map((item) => (
-                    <div key={item.id + (item.continued ? "-c" : "")} className={item.continued ? "opacity-50" : ""}>
-                      <span className={`block truncate rounded px-1 py-0.5 text-[11px] leading-tight ${KIND_META[item.kind].badge}`}>
-                        {item.title}
-                      </span>
-                    </div>
-                  ))}
-                  {dayItems.length > 3 && (
-                    <div className="text-[11px] text-gray-400">+{dayItems.length - 3} 更多</div>
-                  )}
-                </div>
+                <span>周{"一二三四五六日"[i]}</span>
+                <strong>{date.getDate()}</strong>
+                <i className={eventsFor(date).length ? "has-events" : ""} />
+                {active ? (
+                  <motion.div
+                    className="day-highlight"
+                    layoutId="selected-day"
+                    transition={{ type: "spring", stiffness: 380, damping: 30 }}
+                  />
+                ) : null}
               </button>
             );
           })}
         </div>
+      ) : null}
+
+      {error ? <p className="cal-error">{error}</p> : null}
+      {!loaded ? <p className="cal-loading">正在加载云端日程…</p> : null}
+
+      <motion.div
+        key={view}
+        className="view-container"
+        initial={quickSwitch ? false : { opacity: 0, transform: reduced ? "none" : "translateY(6px)" }}
+        animate={{ opacity: 1, transform: "none" }}
+        transition={{ duration: reduced ? 0 : 0.16, ease: [0.23, 1, 0.32, 1] }}
+      >
+        {view === "clock" ? (
+          <div className="clock-layout">
+            <ClockFace
+              instant={quickSwitch}
+              events={todayEvents}
+              selected={selected}
+              onSelect={(event) => open({ kind: "detail", event })}
+            />
+
+            <section className="agenda">
+              <div className="section-title">
+                <h2>
+                  当天安排{" "}
+                  <span aria-label={`${todayEvents.length} 项日程`}>
+                    <SlidingNumber value={todayEvents.length} />
+                  </span>
+                </h2>
+                <button type="button" className="subtle" onClick={() => open({ kind: "add" })}>
+                  <Plus size={17} />
+                  添加
+                </button>
+              </div>
+
+              <div className="agenda-list">
+                {todayEvents.length ? (
+                  todayEvents.map((event) => (
+                    <EventRow
+                      key={event.id}
+                      event={event}
+                      onClick={() => open({ kind: "detail", event })}
+                    />
+                  ))
+                ) : (
+                  <div className="empty">
+                    <Coffee />
+                    <h3>{loaded ? "这一天的留白，交给你" : "正在读取日程…"}</h3>
+                    <p>
+                      {loaded
+                        ? allTodayCount > 0
+                          ? "当前筛选下没有日程，试试打开更多类别。"
+                          : "添加一件想做的事，慢慢安排。"
+                        : "稍等片刻。"}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {profileIncomplete ? (
+                <div className="breathing-space">
+                  <span className="breathing-icon">
+                    <Sparkles size={21} />
+                  </span>
+                  <div>
+                    <strong>完善学院与年级</strong>
+                    <p>到「我的」补全信息后，学院 / 年级公共日程才能精确匹配。</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="breathing-space">
+                  <span className="breathing-icon">
+                    <Coffee size={21} />
+                  </span>
+                  <div>
+                    <strong>时间有安排，也有留白</strong>
+                    <p>把一件想做的小事，放进今天。</p>
+                  </div>
+                </div>
+              )}
+            </section>
+          </div>
+        ) : null}
+
+        {view === "month" ? (
+          <MonthView
+            selected={selected}
+            eventsFor={eventsFor}
+            onDate={setSelected}
+            onEvent={(event) => open({ kind: "detail", event })}
+            onOpenDay={() => switchView("clock")}
+          />
+        ) : null}
+
+        {view === "week" ? (
+          <WeekView
+            selected={selected}
+            eventsFor={eventsFor}
+            onEvent={(event) => open({ kind: "detail", event })}
+          />
+        ) : null}
+
+        {view === "timeline" ? (
+          <TimelineView
+            key={dateKey(selected) + enabled.join("") + hiddenIds.length}
+            selected={selected}
+            eventsFor={eventsFor}
+            onEvent={(event) => open({ kind: "detail", event })}
+          />
+        ) : null}
+      </motion.div>
+
+      <footer className="page-footer">
+        <span>
+          <i />
+          {events.length} 条日程 · 数据云端同步
+        </span>
+        <span>深大日程 / 把在意的事，放进时间里</span>
+      </footer>
+
+      <div className="dock-area">
+        <div className="dock-caption">
+          换个角度，看时间<span>1 — 4</span>
+        </div>
+        <Dock
+          key={String(reduced)}
+          className="view-dock"
+          theme="light"
+          baseItemSize={58}
+          magnification={72}
+          distance={120}
+          panelHeight={76}
+          gap={18}
+          tiles={false}
+          showLabels={false}
+          items={VIEWS.map((item) => {
+            const Icon = item.icon;
+            return {
+              label: item.label,
+              active: view === item.id,
+              className: view === item.id ? "is-active" : "",
+              icon: (
+                <>
+                  <Icon size={23} />
+                  <span className="dock-name">{item.label}</span>
+                </>
+              ),
+              onClick: () => switchView(item.id),
+            };
+          })}
+        />
       </div>
 
-      <section className="mt-4 rounded-xl bg-white p-4 shadow-sm">
-        <h3 className="mb-3 text-sm font-medium text-gray-600">
-          {selected === today ? "今天" : selected} 的事件（{selectedItems.length}）
-        </h3>
-        {!loaded && <p className="text-sm text-gray-400">加载中…</p>}
-        {loaded && selectedItems.length === 0 && (
-          <p className="text-sm text-gray-400">这一天没有事件，点右上角「+ 添加事件」安排上</p>
-        )}
-        <div className="space-y-2">
-          {selectedItems.map((item) => (
-            <div key={item.id} className="flex flex-wrap items-center gap-2 text-sm">
-              <span className={`rounded-md px-2 py-0.5 text-xs ${KIND_META[item.kind].badge}`}>
-                {KIND_META[item.kind].label}
-              </span>
-              <span className="text-gray-500">
-                {item.allDay
-                  ? "全天"
-                  : `${String(item.at.getHours()).padStart(2, "0")}:${String(item.at.getMinutes()).padStart(2, "0")}`}
-              </span>
-              <span className="font-medium">{item.title}</span>
-              {item.endAt && (
-                <span className="text-xs text-gray-400">
-                  至 {item.endAt.getMonth() + 1}月{item.endAt.getDate()}日
-                </span>
-              )}
-              {item.link && (
-                <a
-                  href={item.link}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-xs text-indigo-600 hover:underline"
-                >
-                  去预约 / 详情 →
-                </a>
-              )}
-              {item.scope !== "personal" && (
-                <span className="rounded-md bg-sky-50 px-1.5 py-0.5 text-[11px] text-sky-600">
-                  {item.scope === "college" || item.scope === "grade"
-                    ? `${SCOPE_LABEL[item.scope]}·${item.college || item.grade}`
-                    : SCOPE_LABEL[item.scope]}
-                </span>
-              )}
-              {item.detail && <span className="text-xs text-gray-400">{item.detail}</span>}
-              <span className="ml-auto flex gap-2">
-                <button
-                  onClick={() => hideItem(item.id)}
-                  title="不感兴趣，不再显示"
-                  className="text-gray-400 hover:text-amber-600"
-                >
-                  隐藏
-                </button>
-                {item.deletable && (
-                  <button
-                    onClick={() => remove(item.id)}
-                    className="text-gray-400 hover:text-red-500"
-                  >
-                    删除
-                  </button>
-                )}
-              </span>
-            </div>
-          ))}
-        </div>
-      </section>
+      <button
+        type="button"
+        className="mobile-add"
+        aria-label="新建日程"
+        onClick={() => open({ kind: "add" })}
+      >
+        <Plus size={24} />
+      </button>
+
+      <EventDialog
+        state={dialog}
+        onClose={() => setDialog(null)}
+        onSave={handleSave}
+        onDelete={handleDelete}
+        search={searchEvents}
+        onSelect={(event) => open({ kind: "detail", event })}
+        interests={interests}
+        onToggleInterest={toggleInterest}
+        submitting={submitting}
+        error={formError}
+      />
+
+      <AnimatePresence>
+        {toast ? (
+          <motion.div
+            className="toast"
+            role="status"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+          >
+            <Check size={17} />
+            {toast}
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 }
+
+export { TextMorph, AnimatedBackground };

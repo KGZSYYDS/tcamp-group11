@@ -1,0 +1,122 @@
+/* Dock：底部视图切换，磁吸放大的面板与瓷贴按钮 */
+.dock {
+  --dock-base: 58px;
+  --dock-pad: 9px;
+  --dock-gap: 18px;
+  --dock-thickness: 76px;
+  position: absolute;
+  left: 50%;
+  bottom: 5px;
+  z-index: 10;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  touch-action: none;
+}
+
+.dock-panel {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--dock-gap);
+  box-sizing: border-box;
+  height: var(--dock-thickness);
+  padding: var(--dock-pad);
+  border-radius: 24px;
+  background: var(--dock-panel);
+  box-shadow:
+    inset 0 0 0 1px var(--dock-panel-edge),
+    inset 0 1px 0 var(--dock-panel-highlight),
+    var(--dock-panel-shadow);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  backdrop-filter: blur(20px) saturate(1.6);
+}
+
+.dock-item {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--dock-ink);
+  transition: width 120ms var(--ease-out), height 120ms var(--ease-out);
+  will-change: width, height;
+}
+
+.dock-tile {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 13px;
+  background: var(--dock-tile);
+  box-shadow:
+    inset 0 0 0 1px var(--dock-tile-edge),
+    inset 0 1px 0 var(--dock-tile-highlight),
+    var(--dock-tile-shadow);
+  transition: background 0.25s, color 0.25s;
+}
+
+.dock--bare .dock-tile {
+  background: none;
+  box-shadow: none;
+}
+
+.dock-face {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
+.dock-name {
+  font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.dock-item.is-active .dock-tile {
+  background: var(--deep);
+  color: #fff;
+  box-shadow: 0 4px 9px #3448e526;
+}
+
+.dock-dot {
+  position: absolute;
+  bottom: -2px;
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--dock-dot);
+  transform: translateX(-50%);
+}
+
+.dock-labels {
+  display: flex;
+  gap: 4px;
+  font-size: 9px;
+  color: var(--muted);
+  opacity: 0.85;
+}
+
+.dock-labels .active {
+  color: var(--deep);
+  font-weight: 650;
+}
+
+@media (max-width: 620px) {
+  .dock {
+    --dock-base: 54px;
+    --dock-gap: 14px;
+  }
+  .dock-labels {
+    display: none;
+  }
+}

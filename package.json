@@ -8,7 +8,10 @@
     "start": "node node_modules/next/dist/bin/next start"
   },
   "dependencies": {
+    "@fontsource-variable/manrope": "^5.3.0",
     "@tencent-ai/workbuddy-cloud-sdk": "dev",
+    "lucide-react": "^0.468.0",
+    "motion": "^12.43.0",
     "next": "14.2.35",
     "react": "18.3.1",
     "react-dom": "18.3.1"
