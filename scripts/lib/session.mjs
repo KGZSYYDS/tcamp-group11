@@ -74,3 +74,25 @@ export function loadEhallSessionDump() {
     return null;
   }
 }
+
+// ---------- 通用站点会话缓存 ----------
+// 统一认证对短时间重复登录会 401，每个站点各存一份。
+
+export const JWKW_SESSION_FILE = path.join(DATA_DIR, ".jwkw-session.json");
+
+export function saveSessionFile(file, jar) {
+  ensureDataDir();
+  fs.writeFileSync(file, JSON.stringify(jar.dump()), "utf-8");
+  try {
+    fs.chmodSync(file, 0o600);
+  } catch {}
+}
+
+export function loadSessionFile(file) {
+  if (!fs.existsSync(file)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf-8"));
+  } catch {
+    return null;
+  }
+}

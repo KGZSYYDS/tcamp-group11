@@ -1,12 +1,12 @@
 /**
- * 个人课表采集器（办事大厅 →「我的课表」）
+ * 个人课表采集器
  *
- * 数据链路（已实测）：
- *   CAS 登录 → https://ehall.szu.edu.cn/appShow?appId=4770397878132218
- *   → https://ehall.szu.edu.cn/jwapp/sys/wdkb/*default/index.do
- *   → POST /jwapp/sys/wdkb/modules/jshkcb/dqxnxq.do   当前学年学期
- *   → POST /jwapp/sys/wdkb/modules/jshkcb/dqzc.do     当前教学周
- *   → POST /jwapp/sys/wdkb/modules/xskcb/xskcb.do     课表（XNXQDM + XH + SKZC）
+ * 数据分两段取，各取所长：
+ *   课表本体 ← 办事大厅「我的课表」(ehall / jwapp / wdkb)，字段最全（周次掩码、教室、教师）
+ *   周次锚点 ← 教学管理系统 (jwkw / homeapp)，能给出「某天属于第几周」，是校历的权威口径
+ *
+ * 为什么不都用 ehall：wdkb 的 dqzc.do 返回的 ZC 与教务口径差一周（实测 11/8 它给 11，
+ * 教务 jwkw 给 10 且页面明确写「第10周 11/2~11/8」）。差这一周，整学期课表就全错位。
  *
  * 课表行字段：KCM 课程名 / SKJS 教师 / JASMC 教室 / SKXQ 星期 / KSJC~JSJC 节次
  *             ZCMC 周次说明 / SKZC 周次掩码（第 n 位 = 1 表示第 n 周上这门课）
@@ -15,14 +15,16 @@
  *   node scripts/collect-timetable.mjs --dry-run     只看解析结果，不写库
  *   node scripts/collect-timetable.mjs               采下来 + 写入云数据库
  *   node scripts/collect-timetable.mjs --no-db       只写 data/timetable/*.json
- *   node scripts/collect-timetable.mjs --week1 2026-08-24   手动指定第 1 周周一
+ *   node scripts/collect-timetable.mjs --week1 2026-08-31   手动指定第 1 周周一
  *   node scripts/collect-timetable.mjs --term 2026-2027-1   指定学期
  *   node scripts/collect-timetable.mjs --xh 2024150072      指定学号（接口没给时用）
  *   node scripts/collect-timetable.mjs --file <resp.json>   离线解析已抓到的 xskcb 响应
+ *   node scripts/collect-timetable.mjs --replace            先清掉本来源旧数据再入库
  */
 import fs from "fs";
 import path from "path";
 import { getEhallJar, openApp, appPost } from "./lib/ehall.mjs";
+import { getJwkwJar, resolveWeek1Monday } from "./lib/jwkw.mjs";
 
 // ---------- 配置 ----------
 
@@ -70,6 +72,7 @@ const WEEK1_OVERRIDE = opt("week1");
 const TERM_OVERRIDE = opt("term");
 const WEEK_OVERRIDE = opt("week");
 const FILE = opt("file"); // 离线模式：直接吃一份 xskcb.do 的响应 JSON
+const REPLACE = argv.includes("--replace");
 
 // ---------- 日期工具 ----------
 
@@ -192,6 +195,15 @@ async function existingKeys() {
   return keys;
 }
 
+/** 清掉本来源的旧数据（日期锚点变更后必须整批重来） */
+async function clearAll() {
+  const res = await fetch(`${TABLE}?source=eq.ehall`, {
+    method: "DELETE",
+    headers: HEADERS,
+  });
+  if (!res.ok) throw new Error(`清理旧课表失败 ${res.status}: ${await res.text()}`);
+}
+
 async function ingest(events, batch = 100) {
   const exists = await existingKeys();
   const todo = events.filter((e) => !exists.has(e.source_url));
@@ -253,18 +265,24 @@ async function main() {
 
   console.log(`课表行：${rows.length} 条（同一门课可能拆成多段）`);
 
-  // 第 1 周周一：优先用参数，其次由「当前教学周 + 今天」反推
-  // （当前周次是教务按校历算出来的，比自己猜开学日期可靠）
+  // 第 1 周周一：以教务（jwkw）的周次为准，它按校历算并且能交叉验证。
+  // 离线模式（--file）没有会话，退回用 --week1 或 --week 推算。
   let week1Monday;
   if (WEEK1_OVERRIDE) {
     week1Monday = new Date(`${WEEK1_OVERRIDE}T00:00:00`);
-  } else if (currentWeek) {
+    console.log(`第 1 周周一：${iso(week1Monday)}（--week1 指定）`);
+  } else if (FILE) {
+    if (!currentWeek) throw new Error("离线模式需要 --week1 或 --week 来定位第 1 周");
     const today = new Date();
     week1Monday = addDays(today, -((currentWeek - 1) * 7 + (isoWeekday(today) - 1)));
+    console.log(`第 1 周周一：${iso(week1Monday)}（按 --week 推算）`);
   } else {
-    throw new Error("既没有当前教学周也没有 --week1，无法定位第 1 周");
+    const jw = await getJwkwJar({ force: FORCE_LOGIN });
+    const r = await resolveWeek1Monday(jw.jar);
+    week1Monday = r.week1Monday;
+    currentWeek = r.currentWeek;
+    console.log(`第 1 周周一：${iso(week1Monday)}（教务校历，当前第 ${currentWeek} 周）`);
   }
-  console.log(`第 1 周周一：${iso(week1Monday)}`);
 
   const periods = loadPeriods();
   const events = expand(rows, week1Monday, periods);
@@ -287,6 +305,11 @@ async function main() {
     return;
   }
   if (NO_DB) return;
+
+  if (REPLACE) {
+    console.log("--replace：先清掉库里 source=ehall 的旧课表……");
+    await clearAll();
+  }
 
   const res = await ingest(events);
   console.log(`入库完成：新增 ${res.added}，失败 ${res.failed}，已存在 ${res.skipped}`);

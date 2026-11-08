@@ -1,8 +1,15 @@
 /**
- * 用真实 Chrome（headless + CDP）打开办事大厅「我的课表」，
- * 抓取页面实际发出的 .do 请求与响应，用于定位课表数据接口。
+ * 用真实 Chrome（headless + CDP）打开一个 SPA 页面，抓它实际发出的 XHR。
+ * 金智 ehall / jwkw 都是前端渲染，纯 HTTP 只能拿到空壳，靠它定位数据接口。
  *
  * 不依赖 playwright：直接用 Node 22 内置 WebSocket 说 CDP 协议。
+ *
+ * 用法：
+ *   node scripts/ehall-cdp.mjs                                  # 默认：办事大厅「我的课表」
+ *   node scripts/ehall-cdp.mjs --url "<页面 URL>" --service "<CAS service>"
+ *   node scripts/ehall-cdp.mjs --url "https://jwkw.szu.edu.cn/jwapp/sys/homeapp/home/index.html" \
+ *        --service "https://jwkw.szu.edu.cn/jwapp/sys/homeapp/index.do"
+ * 抓到的请求写 data/tmp/cdp-requests.log，模块接口的响应体写 data/tmp/api-*.json。
  */
 import { spawn } from "child_process";
 import { casLogin } from "./lib/cas.mjs";
@@ -11,17 +18,27 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 
+const argv = process.argv.slice(2);
+const opt = (n, d = null) => {
+  const i = argv.indexOf(`--${n}`);
+  return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith("--") ? argv[i + 1] : d;
+};
+
 const CHROME = "C:/Program Files/Google/Chrome/Application/chrome.exe";
-const PORT = 9333;
+const PORT = Number(opt("port", "9333"));
 const PROFILE = path.join(process.cwd(), "data/tmp/chrome-profile");
-const APP_URL = "https://ehall.szu.edu.cn/appShow?appId=4770397878132218";
+const SERVICE = opt("service", "https://ehall.szu.edu.cn:443/amp/login");
+const APP_URL = opt("url", "https://ehall.szu.edu.cn/appShow?appId=4770397878132218");
+const WAIT = Number(opt("wait", "9000"));
+const TARGET_HOST = new URL(APP_URL).hostname;
 
 fs.mkdirSync(PROFILE, { recursive: true });
 
 const cred = loadCredentials();
-const login = await casLogin(cred.username, cred.password, "https://ehall.szu.edu.cn:443/amp/login");
-const ehallCookies = (login.jar.dump().find(([d]) => d === "ehall.szu.edu.cn") || [])[1] || [];
-console.log("cookie 数:", ehallCookies.length);
+const login = await casLogin(cred.username, cred.password, SERVICE);
+const cookies = (login.jar.dump().find(([d]) => d === TARGET_HOST) || [])[1] || [];
+console.log("目标:", APP_URL);
+console.log("cookie 数:", cookies.length);
 
 const chrome = spawn(CHROME, [
   "--headless=new",
@@ -83,12 +100,12 @@ function send(method, params = {}) {
 await send("Network.enable", { maxTotalBufferSize: 100 * 1024 * 1024 });
 await send("Page.enable");
 
-for (const [name, value] of ehallCookies) {
-  await send("Network.setCookie", { name, value, domain: "ehall.szu.edu.cn", path: "/" });
+for (const [name, value] of cookies) {
+  await send("Network.setCookie", { name, value, domain: TARGET_HOST, path: "/" });
 }
 
 await send("Page.navigate", { url: APP_URL });
-await sleep(9000);
+await sleep(WAIT);
 
 // 抓所有 .do 请求
 const dots = [...requests.entries()].filter(([, r]) => /\.do\b|\.json\b/.test(r.url));

@@ -9,7 +9,7 @@
 |---|---|---|---|---|
 | **L0 无账号** | 什么都不给 | 主站通知公告、教务部公告 | 直接 GET，无登录 | 部分可用，见 §2.4 |
 | **L1 校园账号** | 统一身份认证登录（学号+密码，或企业微信扫码） | 公文通全部通知：体测、期末、讲座、开放日、报名 | CAS 会话 Cookie + 抓列表/详情 | 全站 CAS，必须登录 |
-| **L2 教务/课表** | L1 之上，进入办事大厅对应应用 | 个人课表、考试安排、成绩 | eHall 应用页（appId）+ jwapp `.do` 接口 | 课表已打通，见 §2.3 |
+| **L2 教务/课表** | L1 之上，进入办事大厅对应应用 | 个人课表、考试安排、成绩 | eHall 应用页（appId）+ jwapp `.do` 接口；jwkw 的 `homeapp/api` | 课表已打通，考试接口已定位，见 §2.3 / §2.4 |
 | **L3 消息/排班** | 企业微信授权（需学校侧建应用） | 日程、会议、审批；**不含聊天记录** | 企业微信开放平台 API | 需管理员配合，非自助 |
 
 **产品结论**：L0 只能撑「校园开放日/公共讲座」这种对外内容；L1 才是「体测 DDL / 期末安排」的主力，必须让用户登录一次；L2/L3 属于可选增强，不能作为默认路径。
@@ -50,7 +50,7 @@
 |---|---|---|
 | `/appShow?appId=4770397878132218` | 打开应用，302 到 `/jwapp/sys/wdkb/*default/index.do` | — |
 | `/jwapp/sys/wdkb/modules/jshkcb/dqxnxq.do` | 当前学年学期 | — |
-| `/jwapp/sys/wdkb/modules/jshkcb/dqzc.do` | 当前教学周（`rows[0].ZC`） | `XN=2026-2027`、`XQ=1`、`RQ=2026-11-8`（三个都必填，缺一个就 `WebServiceFault`） |
+| `/jwapp/sys/wdkb/modules/jshkcb/dqzc.do` | 号称「当前教学周」，**实际比教务口径大 1 周，别信** | `XN=2026-2027`、`XQ=1`、`RQ=2026-11-8` |
 | `/jwapp/sys/wdkb/modules/jshkcb/cxjcs.do` | 各学期节次/校历行（含 `XQKSRQ` 学期开始日期、`ZZC` 总周次） | `XN`、`XQ` |
 | `/jwapp/sys/wdkb/modules/xskcb/xskcb.do` | **课表本体** | `XNXQDM=2026-2027-1`、`XH=学号`、`SKZC=当前周` |
 | `/jwapp/sys/wdkb/modules/xskcb/cxjcgx.do` | 节次关系 | `XNXQDM` |
@@ -63,7 +63,28 @@
 - **不要反复登录**：统一认证对短时间内的重复登录返回 `401`（页面仍是登录页、无错误提示），只能等风控窗口过去。采集器因此把整条 Cookie 按域缓存到 `data/.ehall-session.json`，失效才重登
 - 课表页的 `*default/index.do` 是 SPA，数据全部走 XHR；纯 HTTP 拿页面只能得到空壳。要抓真实请求用 `scripts/ehall-cdp.mjs`（本机 Chrome + CDP，只读抓包，不依赖 playwright）
 
-### 2.4 公开可用的部分
+### 2.4 教学管理系统 `https://jwkw.szu.edu.cn/`（真正的教务）
+
+办事大厅只是入口壳，考试、成绩、缓考这些真正的教务功能跑在 jwkw。**接口是干净的 GET JSON**，没有 `;jsessionid` 拼 URL、没有表单 POST。
+
+- CAS service 必须是 `https://jwkw.szu.edu.cn/jwapp/sys/homeapp/index.do`。拿办事大厅的 service 登录，这个域仍是游客。
+- 域名是 `jwkw`，不是 `jwxt`（后者无 DNS）。
+
+| 接口 | 作用 | 实测 |
+|---|---|---|
+| `/jwapp/sys/homeapp/api/home/currentUser.do` | 姓名 / 学号 / 当前学期 / 当前周次 | ✅ `禹康`、`2024150072`、`classWeek:10` |
+| `/jwapp/sys/homeapp/api/home/menus.do?userType=student` | 功能菜单 | ✅ 首页 / 考试安排 / 我的考试 / 缓考申请 |
+| `/jwapp/sys/homeapp/api/home/kb/xnxq.do` | 学年学期列表 | ✅ |
+| `/jwapp/sys/homeapp/api/home/teachingSchedule/classWeek.do?rq=YYYY-MM-DD` | **某天属于第几周** | ✅ 8/31→1、11/2→10、11/9→11 |
+| `/jwapp/sys/homeapp/api/home/teachingSchedule/list.do?rq=&lxdm=student` | 某天的课程安排 | 🟡 周日为空，正常 |
+| `/jwapp/sys/homeapp/api/home/student/exams.do?termCode=2026-2027-1` | **考试安排** | 🟡 返回空数组，本学期尚未排考 |
+| `/jwapp/sys/homeapp/api/home/announcement.do` | 公告 | ✅ 空 |
+| `/jwapp/sys/homeapp/api/home/messages_pc.do` | 站内消息 | ✅ 空（无未读） |
+| `/jwapp/sys/homeapp/api/home/student/applys.do` | 我的申请 | ✅ null |
+
+**周次口径以 jwkw 为准**：`classWeek.do` 给出的第 1 周是 **2026-08-31**，而 ehall `wdkb` 的 `dqzc` 对同一天返回 11（假 10）。差这一周会把整学期课表排错，所以 `collect-timetable.mjs` 用 ehall 拿课表本体、用 jwkw 拿周次锚点。
+
+### 2.5 公开可用的部分
 
 | 地址 | 状态 | 说明 |
 |---|---|---|
@@ -104,19 +125,25 @@ npm run collect:timetable
 npm run collect:timetable -- --dry-run
 # 会话失效时的排障顺序：先复用缓存，再重登
 npm run collect:timetable -- --relogin
-# 手滑跳过一整周时，用已知日期钉住第 1 周周一
-npm run collect:timetable -- --week1 2026-08-24
+# 周次锚点错了要整批重来（先删 source=ehall 再写）
+npm run collect:timetable -- --replace
+# 教务周次接口不可用时，用已知日期钉住第 1 周周一
+npm run collect:timetable -- --week1 2026-08-31
 ```
 
 调试用参数：`--save-raw` 存原始 HTML 到 `data/board/raw/`，`--from-html <file>` 离线验证解析，`--dry-run` 不落盘，
 `--file <xskcb 响应 json>` 离线跑课表解析。
+
+抓 SPA 的 XHR（定位新接口时用）：`node scripts/ehall-cdp.mjs --url "<页面>" --service "<CAS service>"`，
+走本机 Chrome + CDP，不装 playwright；结果在 `data/tmp/cdp-requests.log`。
 
 ## 五、还没做完 / 待确认
 
 - [x] 公文通列表页 / 详情页解析（已用真实 HTML 校准，518 条全栏目可采）
 - [x] eHall 应用枚举（登录后）→ 课表 appId `4770397878132218`
 - [x] 课表接口打通并入库（7 门课 / 207 次上课事件）
-- [ ] 考试安排（appId `7815927872376224`）接口待摸
-- [ ] 成绩（appId `5101964191790615`）接口待摸
+- [x] 周次锚点改用教务 jwkw 口径（`2026-08-31` = 第 1 周），已按 `--replace` 整批重算
+- [ ] 考试安排：jwkw `/student/exams.do` 已通，本学期尚无排考数据，等期末验证字段
+- [ ] 成绩：本科走 ehall `cjcx`（appId `4768574631264620`），接口模块待摸
 - [ ] 课表事件当前 `kind=other`，等前端确定要不要加 `class` 类型再改
 - [ ] 创新领航讲座：公文通「讲座」栏目已能采到，是否另有独立报名入口待确认
