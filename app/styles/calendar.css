@@ -651,10 +651,21 @@
   height: 56px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   border-bottom: 1px solid var(--line);
-  margin-bottom: 4px;
+  margin-bottom: 16px;
 }
+.calendar-app .cal-topbar .top-tools { gap: 10px; }
+.calendar-app .add-quick {
+  background: var(--deep);
+  color: #fff;
+}
+@media (hover: hover) and (pointer: fine) {
+  .calendar-app .add-quick:hover { background: #2a3ac9; }
+}
+.calendar-app .add-quick:active { transform: scale(.95); }
+/* 新建按钮已在顶部栏，不再需要移动端浮动按钮 */
+.calendar-app .mobile-add { display: none !important; }
 .calendar-app .cal-loading,
 .calendar-app .cal-error {
   margin: 12px 0;
@@ -699,5 +710,5 @@
 .calendar-app .search-results button > span { position: absolute; right: 0; top: 30px; }
 
 /* Dock 的容器由本页提供，原型里是 fixed 定位，这里跟随页面滚动 */
-.calendar-app .dock-area { position: relative; left: auto; transform: none; margin: 28px auto 0; }
+.calendar-app .dock-area { position: relative; left: auto; right: auto; bottom: auto; transform: none; margin: 28px auto 12px; height: auto; min-height: 96px; z-index: auto; }
 .calendar-app .toast { position: fixed; }

@@ -26,6 +26,7 @@ import TimelineView from "./calendar/TimelineView";
 import EventDialog from "./calendar/EventDialog";
 import type { DialogState, EventFormData } from "./calendar/EventDialog";
 import Dock from "./calendar/ui/Dock";
+import "./calendar/ui/Dock.css";
 import { AnimatedBackground } from "./calendar/ui/AnimatedBackground";
 import { SlidingNumber } from "./calendar/ui/SlidingNumber";
 import { TextMorph } from "./calendar/ui/TextMorph";
@@ -41,13 +42,6 @@ const VIEWS: { id: ViewId; label: string; icon: typeof Clock3 }[] = [
 ];
 
 const FILTERS: AgendaVisual[] = ["course", "ddl", "notice", "personal"];
-
-const HEADLINES: Record<ViewId, string> = {
-  clock: "今天，留给重要的事。",
-  month: "把日子，慢慢排好。",
-  week: "这一周，心里有数。",
-  timeline: "沿着时间，往前走。",
-};
 
 const HIDDEN_KEY = "szu-cal-hidden";
 const INTEREST_KEY = "szu-cal-interests";
@@ -116,7 +110,6 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
   );
 
   const todayEvents = eventsFor(selected);
-  const today = dateKey(new Date());
   const monday = addDays(selected, -((selected.getDay() + 6) % 7));
 
   // 全部事件（不受筛选影响）中的今日待办数，用于顶部提示
@@ -242,11 +235,6 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
   return (
     <div className="calendar-app">
       <header className="cal-topbar">
-        <div className="breadcrumb">
-          <span>我的日程</span>
-          <ChevronRight size={14} />
-          <strong>{VIEWS.find((v) => v.id === view)?.label}视图</strong>
-        </div>
         <div className="top-tools">
           <button type="button" className="icon-button" aria-label="搜索日程" onClick={() => open({ kind: "search" })}>
             <Search size={20} />
@@ -259,22 +247,16 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
           >
             <Settings2 size={20} />
           </button>
+          <button
+            type="button"
+            className="icon-button add-quick"
+            aria-label="新建日程"
+            onClick={() => open({ kind: "add" })}
+          >
+            <Plus size={20} />
+          </button>
         </div>
       </header>
-
-      <section className="greeting">
-        <div>
-          <p className="date-eyebrow">
-            {selected.getFullYear()} 年 {selected.getMonth() + 1} 月 <span>·</span>{" "}
-            {dateKey(selected) === today ? "今天" : "所选日期"}
-          </p>
-          <h1>{HEADLINES[view]}</h1>
-        </div>
-        <button type="button" className="primary add-main" onClick={() => open({ kind: "add" })}>
-          <Plus size={19} />
-          新建日程
-        </button>
-      </section>
 
       <div className="date-controls">
         <div className="date-navigation">
@@ -355,7 +337,7 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
       <motion.div
         key={view}
         className="view-container"
-        initial={quickSwitch ? false : { opacity: 0, transform: reduced ? "none" : "translateY(6px)" }}
+        initial={quickSwitch ? { opacity: 1, transform: "none" } : { opacity: 0, transform: reduced ? "none" : "translateY(6px)" }}
         animate={{ opacity: 1, transform: "none" }}
         transition={{ duration: reduced ? 0 : 0.16, ease: [0.23, 1, 0.32, 1] }}
       >
