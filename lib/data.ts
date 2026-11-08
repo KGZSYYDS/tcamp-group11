@@ -1,4 +1,4 @@
-import { cloud } from "./cloud";
+import { cloud, publicConfig } from "./cloud";
 import type {
   CalEvent,
   CalEventInput,
@@ -181,6 +181,51 @@ export async function deleteEvent(id: string) {
     .select();
   if (error) throw new Error(error.message);
   assertAffected(data);
+}
+
+/**
+ * 认领课表：把采集器以 anon 身份写入的课表归属到当前登录用户。
+ *
+ * 采集器跑在用户本机、用的是公共可发布密钥，写进去的 owner_id 只能是 "anon"。
+ * 用户登录后填一次学号，把「ehall://xskcb/<学号哈希>/…」这批行改成自己的 owner_id，
+ * 之后 CalendarPanel 才会把 scope=personal 的课表判为「本人」并展示。
+ * 学号只用于本地算哈希（不落库、不上报），与采集端 scripts/collect-timetable.mjs 的 ownerKeyOf 一致。
+ */
+async function ownerKeyOf(studentId: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(studentId.trim()));
+  return Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("")
+    .slice(0, 16);
+}
+
+export async function claimTimetable(studentId: string, userId: string): Promise<number> {
+  const xh = studentId.trim();
+  if (!/^\d{6,20}$/.test(xh)) throw new Error("请填写正确的学号（纯数字）");
+  if (!userId) throw new Error("请先登录再认领");
+
+  const qs = new URLSearchParams({
+    source: "eq.ehall",
+    owner_id: "eq.anon",
+    // 只认领这个学号的课表；* 由 PostgREST 当成通配符
+    source_url: `like.ehall://xskcb/${await ownerKeyOf(xh)}/*`,
+    select: "id",
+  });
+
+  const res = await fetch(`${publicConfig.endpoint}/.cloud/database/rest/events?${qs.toString()}`, {
+    method: "PATCH",
+    headers: {
+      "x-wb-webapp-access-key": publicConfig.publishableKey,
+      "Content-Type": "application/json",
+      Prefer: "return=representation",
+    },
+    body: JSON.stringify({ owner_id: userId }),
+  });
+  if (!res.ok) {
+    throw new Error(`认领失败 ${res.status}：${(await res.text()).slice(0, 120)}`);
+  }
+  const rows = await res.json();
+  return Array.isArray(rows) ? rows.length : 0;
 }
 
 /** 公共事件按来源链接查重：同一通知任何人采集过就不再重复入库 */

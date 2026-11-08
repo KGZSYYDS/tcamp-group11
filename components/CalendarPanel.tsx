@@ -26,6 +26,8 @@ interface CalItem {
   detail?: string;
   deletable: boolean;
   scope: string;
+  /** 是否属于当前用户本人。personal 事件必须为 true 才展示，避免看到别人的个人数据 */
+  own: boolean;
   college?: string;
   grade?: string;
 }
@@ -131,6 +133,9 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
           detail: [e.course, e.location, e.note].filter(Boolean).join(" · "),
           deletable: e.scope === "personal" || e.ownerId === currentUserId,
           scope: e.scope,
+          // 采集器写入的行 ownerId 是 "anon"，与登录用户不匹配 → 不展示。
+          // 这就是「只有本人授权后自己的课表才出现」的落点。
+          own: Boolean(currentUserId) && e.ownerId === currentUserId,
           college: e.college,
           grade: e.grade,
         })),
@@ -143,6 +148,7 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
           detail: d.note,
           deletable: false,
           scope: "personal",
+          own: true,
         })),
         ...checkins.map((c: Checkin) => ({
           id: c.id,
@@ -153,6 +159,7 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
           detail: c.note,
           deletable: false,
           scope: "personal",
+          own: true,
         })),
       ];
       setItems(merged);
@@ -167,12 +174,14 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
     refresh();
   }, [refresh]);
 
-  /** 相关性过滤：个人数据始终显示；公共事件开启「只看与我相关」时按画像匹配 */
+  /** 相关性过滤：公共事件按画像匹配；个人事件只展示本人的 */
   const visibleItems = useMemo(() => {
     const userLevel = profile?.level || "undergraduate";
     return items.filter((item) => {
       if (hiddenIds.includes(item.id)) return false;
-      if (item.scope === "personal" || item.scope === "school") return true;
+      // 个人数据先校验归属：不是本人的一律不展示（含采集器写入的他人课表）
+      if (item.scope === "personal") return item.own;
+      if (item.scope === "school") return true;
       if (!onlyRelated) return true;
       if (item.scope === "college") {
         return Boolean(profile?.college && item.college === profile.college);
@@ -285,6 +294,12 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
     }
   }
 
+  /** 采集器抓下来的个人课表（owner 仍是 anon）——提示去「我的」页认领 */
+  const unclaimedCount = useMemo(
+    () => items.filter((i) => i.scope === "personal" && !i.own).length,
+    [items]
+  );
+
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
@@ -344,6 +359,13 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
       {profileIncomplete && (
         <p className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
           到「我的」Tab 完善学院和年级后，学院 / 年级公共事件才能精确匹配；未匹配的事件当前被隐藏。
+        </p>
+      )}
+
+      {unclaimedCount > 0 && (
+        <p className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          有 {unclaimedCount} 条个人课表还没认领 —— 个人数据默认不对他人展示。到「我的」Tab 填学号认领后，
+          它们才会出现在这里。
         </p>
       )}
 

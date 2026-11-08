@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { cloud } from "@/lib/cloud";
-import { getProfile, saveProfile } from "@/lib/data";
+import { claimTimetable, getProfile, saveProfile } from "@/lib/data";
 
 interface Props {
   session: {
@@ -20,6 +20,10 @@ export default function ProfilePanel({ session }: Props) {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
   const [error, setError] = useState("");
+  const [xh, setXh] = useState("");
+  const [claiming, setClaiming] = useState(false);
+  const [claimMsg, setClaimMsg] = useState("");
+  const [claimErr, setClaimErr] = useState("");
 
   useEffect(() => {
     getProfile()
@@ -63,6 +67,25 @@ export default function ProfilePanel({ session }: Props) {
   }
 
   const user = session.user || {};
+
+  /** 认领本机采集器抓下来的课表，把归属从 anon 改成当前账号 */
+  async function claim(e: React.FormEvent) {
+    e.preventDefault();
+    setClaiming(true);
+    setClaimMsg("");
+    setClaimErr("");
+    try {
+      const n = await claimTimetable(xh, user.id || "");
+      setClaimMsg(
+        n > 0
+          ? `已认领 ${n} 节课，现在只对你可见`
+          : "没找到这个学号的课表。先在本机跑一次课表采集，再回来认领。"
+      );
+    } catch (err) {
+      setClaimErr(err instanceof Error ? err.message : "认领失败");
+    }
+    setClaiming(false);
+  }
 
   return (
     <div className="grid gap-4 sm:grid-cols-5">
@@ -146,6 +169,29 @@ export default function ProfilePanel({ session }: Props) {
           {user.phone && <p>手机号：{user.phone}</p>}
           {user.email && <p>邮箱：{user.email}</p>}
         </div>
+        <form onSubmit={claim} className="mt-5 border-t border-gray-100 pt-4">
+          <h3 className="mb-1 text-sm font-medium text-gray-700">我的课表</h3>
+          <p className="mb-2 text-xs text-gray-400">
+            课表由本机采集器按你授权的办事大厅账号抓取。填学号认领后，课表只对你可见。学号只用于认领，不入库。
+          </p>
+          <input
+            value={xh}
+            onChange={(e) => setXh(e.target.value)}
+            inputMode="numeric"
+            placeholder="学号，如 2026000000"
+            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-indigo-400"
+          />
+          <button
+            type="submit"
+            disabled={claiming || !xh.trim()}
+            className="mt-2 w-full rounded-lg bg-indigo-600 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {claiming ? "认领中…" : "认领我的课表"}
+          </button>
+          {claimMsg && <p className="mt-2 text-xs text-emerald-600">{claimMsg}</p>}
+          {claimErr && <p className="mt-2 text-xs text-red-500">{claimErr}</p>}
+        </form>
+
         <button
           onClick={() => cloud.auth.signOut()}
           className="mt-6 w-full rounded-lg border border-gray-200 py-2 text-sm text-gray-500 hover:bg-gray-50 hover:text-red-500"

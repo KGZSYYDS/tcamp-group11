@@ -57,6 +57,8 @@ npm run collect:timetable                # 办事大厅「我的课表」→ 云
 - 公文通全站要登录，没有公开 API；采集器登录一次拿 Cookie，之后按栏目翻页。
 - 课表按「课程 + 周次 + 星期 + 节次」展开成单次上课事件，重复跑只补新增；
   周次锚点取自教务系统（`jwkw` 的 `classWeek.do`），节次时间表在 `scripts/collect-timetable.mjs` 顶部。
+- 课表是个人数据：采完要去网页「我的」页填一次学号认领，课表才会归属到你账号并只对你可见
+  （库里存的是学号哈希，明文不落库）。不收成绩、不收全校课表，理由见 `docs/data-access.md` §1.1。
 - 各系统能拿到什么、需要用户给到什么权限，见 [`docs/data-access.md`](docs/data-access.md)。
 
 ## 协作约定

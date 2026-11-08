@@ -11,6 +11,12 @@
  * 课表行字段：KCM 课程名 / SKJS 教师 / JASMC 教室 / SKXQ 星期 / KSJC~JSJC 节次
  *             ZCMC 周次说明 / SKZC 周次掩码（第 n 位 = 1 表示第 n 周上这门课）
  *
+ * 归属：课表是「个人数据」，但脚本用的是公共 anon 密钥，写进去的 owner_id 只能是 anon。
+ *      所以 source_url 里带上「学号哈希」的前 16 位（ehall://xskcb/<hash>/<JXBID>/…），
+ *      前端登录后凭学号算出同一个哈希来「认领」，认领后 owner_id 才变成该用户，
+ *      课表也只对本人可见（见 lib/data.ts claimTimetable）。
+ *      注意：这里只写哈希，绝不写学号明文——events 表是公开可读的。
+ *
  * 用法：
  *   node scripts/collect-timetable.mjs --dry-run     只看解析结果，不写库
  *   node scripts/collect-timetable.mjs               采下来 + 写入云数据库
@@ -23,6 +29,7 @@
  */
 import fs from "fs";
 import path from "path";
+import crypto from "node:crypto";
 import { getEhallJar, openApp, appPost } from "./lib/ehall.mjs";
 import { getJwkwJar, resolveWeek1Monday } from "./lib/jwkw.mjs";
 
@@ -142,8 +149,15 @@ async function fetchSchedule(jar, base, term, week, xh) {
 
 // ---------- 展开成日历事件 ----------
 
-function expand(rows, week1Monday, periods) {
+/** 学号 → 16 位哈希前缀。前端 claimTimetable 用同一算法，学号明文不进库 */
+export function ownerKeyOf(xh) {
+  if (!xh) return "-";
+  return crypto.createHash("sha256").update(String(xh).trim()).digest("hex").slice(0, 16);
+}
+
+function expand(rows, week1Monday, periods, xh) {
   const events = [];
+  const ownerKey = ownerKeyOf(xh);
   for (const r of rows) {
     const mask = String(r.SKZC || "");
     const weekday = Number(r.SKXQ);
@@ -167,7 +181,8 @@ function expand(rows, week1Monday, periods) {
         note: `第${week}周 · ${ks}-${js}节 · ${r.SKJS || ""}${r.KXH ? ` · 课序${r.KXH}` : ""}`.trim(),
         scope: "personal",
         source: "ehall",
-        source_url: `ehall://xskcb/${r.JXBID}/${week}/${weekday}/${ks}-${js}`,
+        // 学号哈希放在第二段，作为前端「认领」时的归属凭据
+        source_url: `ehall://xskcb/${ownerKey}/${r.JXBID}/${week}/${weekday}/${ks}-${js}`,
         link: null,
       });
     }
@@ -233,6 +248,7 @@ async function ingest(events, batch = 100) {
 
 async function main() {
   let term, currentWeek, rows, termCode, termName;
+  let xh = opt("xh") || null;
 
   if (FILE) {
     // 离线模式：用已抓下来的接口响应，不联网
@@ -256,9 +272,9 @@ async function main() {
     currentWeek = Number(WEEK_OVERRIDE) || (await fetchCurrentWeek(jar, app.base, term));
     console.log(`当前教学周：${currentWeek ?? "未知"}`);
 
-    const xh = opt("xh") || (await fetchStudentId(jar));
+    xh = xh || (await fetchStudentId(jar));
     console.log(`学号：${xh ?? "（接口没给，按会话身份取）"}`);
-    if (!xh) console.warn("警告：没取到学号，若课表为空请用 --xh <学号> 指定");
+    if (!xh) console.warn("警告：没取到学号，若课表为空请用 --xh <学号> 指定；认领也会失效");
 
     rows = await fetchSchedule(jar, app.base, { code: termCode }, currentWeek || 1, xh);
   }
@@ -285,7 +301,8 @@ async function main() {
   }
 
   const periods = loadPeriods();
-  const events = expand(rows, week1Monday, periods);
+  const events = expand(rows, week1Monday, periods, xh);
+  console.log(`归属键：${ownerKeyOf(xh)}（学号哈希前 16 位，用于认领）`);
   const courses = [...new Set(rows.map((r) => r.KCM))];
   console.log(`课程 ${courses.length} 门 → 展开 ${events.length} 个上课事件`);
 

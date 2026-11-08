@@ -14,6 +14,20 @@
 
 **产品结论**：L0 只能撑「校园开放日/公共讲座」这种对外内容；L1 才是「体测 DDL / 期末安排」的主力，必须让用户登录一次；L2/L3 属于可选增强，不能作为默认路径。
 
+### 1.1 数据边界（产品口径）
+
+日历只回答「什么时候要做什么」，不回答「我学得怎么样」。
+
+| 数据 | 收不收 | 原因 |
+|---|---|---|
+| 个人课表 | ✅ 收，且只对本人可见 | 日历骨架。只展示用户授权后抓到的那一份 |
+| 全校课表 | ❌ 不进日历，仅数据库备用 | 全校汇总噪声太大；等真要做「蹭课」再按需查 |
+| 成绩 | ❌ 不收 | 与「什么时候做什么」无关，属教务成绩单职责 |
+| 考试安排 | ✅ 收（接口已通，本学期尚未排考） | 典型的日历事件 |
+| 公文通通知 | ✅ 收，`scope=school` | 体测、报名、讲座等公共 DDL |
+
+**个人数据的归属**：采集器用公共可发布密钥写库，落库的 `owner_id` 只能是 `anon`。课表事件的 `source_url` 里带「学号 SHA-256 前 16 位」（`ehall://xskcb/<hash>/<JXBID>/…`），用户登录后在「我的」页填学号认领，这些行才被改成 `owner_id=<用户 id>`。前端 `CalendarPanel` 对 `scope=personal` 只展示 `own` 为真的事件，未认领的课表不显示，并提示去认领。**学号明文不进库、不进日志**。
+
 ## 二、实测明细
 
 ### 2.1 公文通 `https://www1.szu.edu.cn/board/`
@@ -57,7 +71,7 @@
 | `/jwapp/sys/wdkb/modules/xskcb/xsdkkc.do` | 待选/未在课表展现的课程 | — |
 
 - `xskcb.do` 返回字段：`KCM` 课程名、`SKJS` 教师、`JASMC` 教室、`SKXQ` 星期、`KSJC`~`JSJC` 节次、`ZCMC` 周次说明、`SKZC` 周次掩码（第 n 位为 1 = 第 n 周有课）、`JXBID` 教学班 ID
-- **学号 ≠ 统一认证账号**：账号 `482848` 是登录名，课表接口要学号 `2024150072`，从 `GET /jsonp/userInfo.json` 的 `userId` 取
+- **学号 ≠ 统一认证账号**：统一认证账号是登录名，课表接口要 10 位学号，从 `GET /jsonp/userInfo.json` 的 `userId` 取（文档与代码里都不写明文）
 - 门户用户信息：`GET /jsonp/userInfo.json` → `hasLogin`、`userId`（学号）、`userTypeName`（学生）、`schoolName`
 - **访问姿势有坑**：`.do` 接口必须是表单 POST + `X-Requested-With: XMLHttpRequest`；接口名写错会返回 403 而不是 404，容易误判成「没权限」
 - **不要反复登录**：统一认证对短时间内的重复登录返回 `401`（页面仍是登录页、无错误提示），只能等风控窗口过去。采集器因此把整条 Cookie 按域缓存到 `data/.ehall-session.json`，失效才重登
@@ -72,7 +86,7 @@
 
 | 接口 | 作用 | 实测 |
 |---|---|---|
-| `/jwapp/sys/homeapp/api/home/currentUser.do` | 姓名 / 学号 / 当前学期 / 当前周次 | ✅ `禹康`、`2024150072`、`classWeek:10` |
+| `/jwapp/sys/homeapp/api/home/currentUser.do` | 姓名 / 学号 / 当前学期 / 当前周次 | ✅ 姓名、10 位学号、`classWeek:10` |
 | `/jwapp/sys/homeapp/api/home/menus.do?userType=student` | 功能菜单 | ✅ 首页 / 考试安排 / 我的考试 / 缓考申请 |
 | `/jwapp/sys/homeapp/api/home/kb/xnxq.do` | 学年学期列表 | ✅ |
 | `/jwapp/sys/homeapp/api/home/teachingSchedule/classWeek.do?rq=YYYY-MM-DD` | **某天属于第几周** | ✅ 8/31→1、11/2→10、11/9→11 |
@@ -144,6 +158,7 @@ npm run collect:timetable -- --week1 2026-08-31
 - [x] 课表接口打通并入库（7 门课 / 207 次上课事件）
 - [x] 周次锚点改用教务 jwkw 口径（`2026-08-31` = 第 1 周），已按 `--replace` 整批重算
 - [ ] 考试安排：jwkw `/student/exams.do` 已通，本学期尚无排考数据，等期末验证字段
-- [ ] 成绩：本科走 ehall `cjcx`（appId `4768574631264620`），接口模块待摸
+- [x] ~~成绩~~：**不做**。appId `4768574631264620`（本科）已定位，但与日历无关，见 §1.1
+- [x] 个人课表归属：学号哈希 + 「我的」页认领，`scope=personal` 只显示本人（2026-11-08）
 - [ ] 课表事件当前 `kind=other`，等前端确定要不要加 `class` 类型再改
 - [ ] 创新领航讲座：公文通「讲座」栏目已能采到，是否另有独立报名入口待确认
