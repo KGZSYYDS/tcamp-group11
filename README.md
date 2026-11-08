@@ -43,6 +43,17 @@ start.bat|sh    一键启动（缺依赖时自动 npm install）
 3. 登录畅课 / 内部网后，点插件图标同步作业与通知
    （也可用网页里的「AI 粘贴导入」，不装插件）
 
+## 数据采集
+
+公文通（`www1.szu.edu.cn/board/`）全站需要统一身份认证，没有公开 API。采集用「登录一次拿 Cookie」的方式，脚本不保存账号密码：
+
+```bash
+npm run collect:board -- --cookie "<浏览器复制>" --pages 5
+```
+
+产出 `data/board/notices-*.json`，登录状态下 POST 到 `/api/board/ingest` 入库（`scope=school`，按 `source_url` 去重）。
+各系统能拿到什么、需要用户给什么权限，见 [`docs/data-access.md`](docs/data-access.md)。
+
 ## 协作约定
 
 - 依赖、构建产物、本地数据（`node_modules/`、`.next/`、`data/`）不入库，克隆后按上面方式启动即可

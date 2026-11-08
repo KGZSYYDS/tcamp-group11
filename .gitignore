@@ -22,3 +22,6 @@ szu-calendar-sync-v*/
 .DS_Store
 Thumbs.db
 *.log
+
+# 本地工作区数据（不与协作者共享）
+.workbuddy/
