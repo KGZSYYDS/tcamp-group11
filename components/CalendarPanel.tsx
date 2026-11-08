@@ -16,7 +16,7 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import type { AgendaEvent, AgendaVisual } from "@/lib/agenda";
-import { dateKey } from "@/lib/agenda";
+import { categoriesOf, dateKey } from "@/lib/agenda";
 import { filterByProfile, groupByDate, useAgenda } from "@/lib/useAgenda";
 import ClockFace, { EventRow, VISUAL_META } from "./calendar/ClockFace";
 import { MonthView, WeekView } from "./calendar/MonthWeekView";
@@ -91,10 +91,23 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
     return () => clearTimeout(timer);
   }, [toast]);
 
-  /** 类别开关 + 相关性 + 已隐藏，三层过滤后交给视图 */
+  /**
+   * 类别开关 + 相关性 + 已隐藏，三层过滤后交给视图。
+   *
+   * 类别过滤用「多类别归属」：一条事件可同时属于多个类别（如 DDL 既属于「作业」
+   * 也属于「课程」），只要它归属的任一类别在 enabled 中就显示。
+   * 这样关掉单一类别不会让跨类别事件被误隐藏，避免「只开课程却看到空白」的问题。
+   * 未知 visual（未来可能新增的类别）兜底显示，不会被 enabled 静默挡掉。
+   */
   const visibleEvents = useMemo(() => {
     const byProfile = filterByProfile(events, profile, onlyRelated, hiddenIds);
-    return byProfile.filter((event) => enabled.includes(event.visual));
+    return byProfile.filter((event) => {
+      const cats = categoriesOf(event);
+      const known = cats.filter((c) => FILTERS.includes(c));
+      // 没有任何已知类别 → 兜底显示，绝不静默丢弃
+      if (known.length === 0) return true;
+      return known.some((c) => enabled.includes(c));
+    });
   }, [events, profile, onlyRelated, hiddenIds, enabled]);
 
   const byDay = useMemo(() => groupByDate(visibleEvents), [visibleEvents]);

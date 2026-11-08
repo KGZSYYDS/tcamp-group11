@@ -171,6 +171,10 @@ export function useAgenda(currentUserId: string): AgendaState {
 /**
  * 相关性过滤：个人数据与全校事件始终显示；
  * 学院 / 年级 / 培养层次类公共事件按画像匹配，与旧版 CalendarPanel 规则保持一致。
+ *
+ * 「不遗漏」原则：当 onlyRelated 开启但画像（profile）缺少判断所需的字段时，
+ * 无法确定相关性的公共事件默认显示，而不是静默丢弃。只有画像有对应字段
+ * 且明确不匹配时才过滤。这样用户没填学院/年级时不会莫名看不到学院通知。
  */
 export function filterByProfile(
   events: AgendaEvent[],
@@ -178,16 +182,24 @@ export function filterByProfile(
   onlyRelated: boolean,
   hiddenIds: string[]
 ): AgendaEvent[] {
-  const level = profile?.level || "undergraduate";
   return events.filter((item) => {
     if (hiddenIds.includes(item.id)) return false;
     if (!item.scope || item.scope === "personal" || item.scope === "school") return true;
     if (!onlyRelated) return true;
-    if (item.scope === "college") return Boolean(profile?.college && item.college === profile.college);
-    if (item.scope === "grade") return Boolean(profile?.grade && item.grade === profile.grade);
-    if (item.scope === "undergraduate") return level === "undergraduate";
-    if (item.scope === "postgraduate") return level === "postgraduate";
-    if (item.scope === "doctoral") return level === "doctoral";
+    if (item.scope === "college") {
+      // 画像没填学院 → 无法判断，默认显示；填了但不匹配才过滤
+      if (!profile?.college) return true;
+      return item.college === profile.college;
+    }
+    if (item.scope === "grade") {
+      if (!profile?.grade) return true;
+      return item.grade === profile.grade;
+    }
+    if (item.scope === "undergraduate" || item.scope === "postgraduate" || item.scope === "doctoral") {
+      // 画像没填培养层次 → 无法判断，默认显示
+      if (!profile?.level) return true;
+      return item.scope === profile.level;
+    }
     return true;
   });
 }
