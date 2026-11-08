@@ -5,8 +5,10 @@ out/
 next-env.d.ts
 *.tsbuildinfo
 
-# 本地个人数据
-data/
+# 本地个人数据（微信原始聊天、导出结果、会话 cookie 等一律不提交）
+data/*
+# 唯一的例外：群订阅的样例配置，供他人照抄
+!data/meeting-sources.example.json
 
 # 环境变量与密钥
 .env

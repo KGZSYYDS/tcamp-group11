@@ -105,7 +105,7 @@ export async function parseNoticeToEvent(
 
   return {
     title: String(parsed.title || title).slice(0, 60),
-    kind: ["exam", "pe", "activity", "meeting", "other"].includes(parsed.kind)
+    kind: ["exam", "pe", "activity", "meeting", "deadline", "other"].includes(parsed.kind)
       ? parsed.kind
       : "other",
     date,
@@ -187,11 +187,13 @@ export async function parseDdlText(text: string): Promise<DdlCandidate[]> {
 // 用户把群里的通知「复制」或「截图」交给模型，是零授权、零风险、当天能用的等价方案。
 
 export interface MeetingCandidate {
-  /** 会议名，如「班委会」「课题组组会」 */
+  /** meeting=要到场/上线；deadline=之前必须提交完成 */
+  type: "meeting" | "deadline";
+  /** 会议名 / 待办名，如「班委会」「提交生涯规划报告」 */
   title: string;
   /** YYYY-MM-DD；模型判断不出时为空，由用户补 */
   date: string | null;
-  /** HH:mm */
+  /** HH:mm；deadline 常常只有日期，可为空 */
   startTime: string | null;
   endTime: string | null;
   location: string | null;
@@ -249,6 +251,7 @@ function normalizeMeeting(raw: any, fallbackGroup: string | null): MeetingCandid
   const hm = (v: unknown) => (/^\d{1,2}:\d{2}$/.test(String(v || "")) ? String(v).padStart(5, "0") : null);
   const remind = Number(raw.remindBefore);
   return {
+    type: raw.type === "deadline" ? "deadline" : "meeting",
     title: String(raw.title).slice(0, 40),
     date,
     startTime: hm(raw.startTime),

@@ -8,6 +8,8 @@
     "start": "node node_modules/next/dist/bin/next start",
     "collect:board": "node scripts/collect-board.mjs",
     "collect:timetable": "node scripts/collect-timetable.mjs",
+    "collect:meetings": "node scripts/collect-meetings.mjs",
+    "meetings:list": "node scripts/collect-meetings.mjs --list",
     "ingest:notices": "node scripts/ingest-notices.mjs",
     "auth:save": "node scripts/save-credentials.mjs"
   },

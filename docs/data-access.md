@@ -112,21 +112,23 @@
 
 ## 三、微信 / 企业微信
 
-**聊天记录拿不到，这是本机实测的结论，不是推测。** 2026-11-08 在开发机上逐项验证如下。
+**结论分两层**（2026-11-08 本机实测）：
+- **正文不是明文可读的**——库是 SQLCipher 加密，靠读进程内存解密属于外挂，这条路不走；
+- **但用户自己的记录可以合法导出**——WeFlow 用用户自己的账号密钥读本机库，做的是「导出我自己的聊天记录」，和右键「导出」是一类事。这条路打通了，见 §3.5。
 
 ### 3.1 本机实测
 
 | 对象 | 路径 | 结果 |
 |---|---|---|
 | 微信 4.x 程序 | `D:\Weixin\4.1.15.56\` | 在装，`Weixin.exe` 正在运行 |
-| 微信数据目录 | `D:\Weixin\chat_record\`（配置 `AppData\Roaming\Tencent\xwechat\config\*.ini` 指向） | **空目录**，`Documents\xwechat_files` 不存在，实际库不在默认位置 |
+| 微信数据目录 | 配置 `AppData\Roaming\Tencent\xwechat\config\*.ini` 指向 `D:\Weixin\chat_record\` | 该目录**是空的**；真正的库在 `D:\xwechat_files\wxid_xxx_xxxx\`（配置里的路径不是实际存储位置，别照着找） |
 | 企业微信 | `%USERPROFILE%\Documents\WXWork\<企业id>\` | 在，共 81 个 `.db` |
 | 企业微信消息库 | `Data\message.db`(13.7MB)、`Data\user.db`、`Data\session.db`、`Data\message_lookup.db` | **58 个非 SQLite 明文头 → SQLCipher 加密** |
 | 企业微信明文库 | 23 个，其中 `Index\data_index.db`(14MB) 最大 | 是 FTS **元数据索引**：163 条会话名、125 个文件名、3107 个常用联系人，**无消息正文** |
 
 结论：
 - **群名、联系人、文件名可读**（明文索引里就有）；
-- **消息正文读不到**（在 `message.db` 里，SQLCipher 加密，密钥由客户端运行时派生）。
+- **消息正文在 `message.db` 里，SQLCipher 加密**——直接打开读不到，得让客户端自己解（见 §3.5）。
 
 ### 3.2 为什么不去解那个库
 
@@ -137,7 +139,7 @@
 3. **版本即失效**：4.x 每次小版本都动库结构，密钥派生也会变。维护成本是一个全职逆向岗，不是学生项目该背的。
 4. **企业微信官方 API 只给日程/会议/审批/应用消息，明确不给历史聊天**。要读也只能学校信息中心建应用，非自助。
 
-### 3.3 实际采用的方案：用户主动交出那一条
+### 3.3 轻量路径：用户主动交出那一条
 
 产品要的其实不是「全部聊天」，而是「群里那条写着几点开会的通知」。所以把授权粒度降到**单条**：
 
@@ -162,7 +164,58 @@
 
 ### 3.4 提醒怎么落
 
-会议事件写入 `events`，`kind=meeting`、`scope=personal`、`source=chat-import`，提醒分钟数记在 `note` 的 `提醒:提前N分钟` 标记里（`readRemindMinutes()` 可读回）。当前只做「记下来 + 日历上可见」，**没有推送**——推送需要通知通道（Web Push / 企业微信应用消息 / 邮件），且要在用户设备上常驻调度，属于下一步。
+会议事件写入 `events`，`kind=meeting`（会议）或 `kind=deadline`（截止），`scope=personal`，提醒分钟数记在 `note` 的 `提醒:提前N分钟` 标记里（`readRemindMinutes()` 可读回）。当前只做「记下来 + 日历上可见」，**没有推送**——推送需要通知通道（Web Push / 企业微信应用消息 / 邮件），且要在用户设备上常驻调度，属于下一步。
+
+### 3.5 自动路径：WeFlow 导出 + 模型提取
+
+> 本节对应 `scripts/collect-meetings.mjs`，是本机跑通后的记录。§3.2 拒绝的是「读进程内存解密」，这里用的是另一条路：**让已经持有密钥的客户端自己把记录导出成明文**。
+
+**工具**：[WeFlow](https://github.com/334456777/WeFlow) 5.0.1。它用用户微信自己的账号密钥打开本机库，导出指定会话的 JSON。密钥由它自己保管在 `D:\Tools\WeFlow\data`，本项目**不读、不复制、不写进仓库**。
+
+```bash
+# 装好后先确认能连上库（会打印 accountDir）
+"D:/Tools/WeFlow/weflow-v5.0.1-windows-x64/weflow.exe" --json db test
+
+# 密钥失效时的恢复：微信退出重登，再重新取一次
+weflow key db --save --timeout 600
+```
+
+**本机实测（2026-11-08）**：
+
+| 项 | 结果 |
+|---|---|
+| `db test` | `connected: true`，accountDir = `D:/xwechat_files\wxid_sid1ysgyl9tk22_8682` |
+| 会话总数 | 788 个，其中群 227 个 |
+| 单群导出耗时 | 18 条消息 / 0.7 秒 |
+| 消息字段 | `localId, createTime, formattedTime, type, content, isSend, senderDisplayName, platformMessageId` |
+| 图片 | 加 `--media image` 会把图片解密复制到 `media/<会话>/images/`，`content` 直接变成可读的相对路径 |
+| 企业微信 | 未接。企业微信没有等价的第三方导出工具，官方 API 不给历史聊天，这块仍是空白 |
+
+**链路**：
+
+```
+WeFlow 导出 JSON（本机）
+  → 拼成「[MM-DD HH:mm] 发送者: 内容」逐行文本
+  → 按 5000 字切片，逐片交模型（提示词与前端共用 lib/meeting-prompt.mjs）
+  → 归一化日期/时间、去重、只留今天及以后
+  → 认领到源消息 id，写 events（source=wechat, scope=personal）
+```
+
+**隐私边界**：
+
+- 原始聊天只落在 `data/wechat/`，**不上传**；`data/*` 已 gitignore；
+- 只有提取出来的「标题 + 时间 + 地点 + 一句原话」进云库；
+- 送进模型的是消息正文，但**不发 wxid、不发头像、不发附件**；
+- `source_url` 里只有学号哈希和群名哈希，没有明文。
+
+**两个必须知道的设计决定**：
+
+1. **去重键不能用模型给的标题**。最初用「日期+时间+标题」，同一批消息连跑两次，模型把「提交体测督促情况反馈表」写成「填写体测督促情况反馈表」，键就对不上，每次同步多插一批近似重复。现改为「源消息 id + 日期」——模型措辞怎么变都落在同一个键上。实测连跑 3 次后收敛：第 4 次新增 0 条。
+2. **认不出来源消息的条目不入库**。模型偶尔把相邻两条通知揉成一条并改写原话，这时 quote 在原文里找不到，也就无法确定身份。这类只在终端打出来提示人工判断，不硬塞进库——否则它每次都会变成一条新重复。
+
+**收录范围**：`meeting`（要到场/上线：例会、答辩、宣讲、考试、体测）+ `deadline`（之前要交：作业、报名、表格、预约）。实测一个班级通知群 7 天 18 条消息里，会议只有 1 场（且已过），截止时间有 4–5 条——**通知群的主体是截止时间，不是会议**，所以两类都要收。
+
+**已知波动**：模型是 `auto` 路由，同一次输入两次运行的召回可能差 1–2 条（有时把 11/20 的体测预约漏掉）。表现是「补上」而不是「重复」，配合上面的幂等键可以接受；要稳定可指定固定模型。
 
 ## 四、采集器用法
 
@@ -178,6 +231,13 @@ npm run ingest:notices
 
 # 3. 个人课表 → 云数据库（scope=personal，按 课程+周次+星期+节次 去重）
 npm run collect:timetable
+
+# 4. 群聊 → 会议/截止（需要 WeFlow，见 §3.5）
+npm run meetings:list                 # 先看有哪些群、哪些像通知群（带分数）
+npm run collect:meetings -- --dry-run # 只看提取结果
+npm run collect:meetings              # 按 data/meeting-sources.json 正式跑
+npm run collect:meetings -- --groups "群名A,群名B" --days 3
+npm run collect:meetings -- --meetings-only   # 只要会议，不要截止
 
 # 只想看看解析结果、不写库
 npm run collect:timetable -- --dry-run
@@ -212,6 +272,11 @@ node scripts/test-meetings.mjs --image data/tmp/chat-shot.png   # 截图
 - [x] ~~成绩~~：**不做**。appId `4768574631264620`（本科）已定位，但与日历无关，见 §1.1
 - [x] 个人课表归属：学号哈希 + 「我的」页认领，`scope=personal` 只显示本人（2026-11-08）
 - [x] 群聊 → 会议：复制文字 / 截图两条路都通，提示词已按实测调过（2026-11-08）
+- [x] 群聊自动采集：WeFlow 导出 → 模型提取 → 入库，本机跑通并收敛（2026-11-08，见 §3.5）
+- [x] 截止时间：`kind=deadline` 已接入（通知群里这类才是大头）
+- [ ] 企业微信：没有等价的导出工具，官方 API 不给历史聊天；只能靠复制/截图
+- [ ] 群图片里的时间安排：`--media image` 已能把图片解密出来，但还不能自动判断哪张图是时间表，需要先按上下文筛图再交视觉模型
+- [ ] 采集调度：现在要手动跑，应该挂成每天定时（配合「只采上次之后的新消息」）
 - [ ] 会议提醒推送：当前只记录提醒分钟数，没有发通知的通道；需要 Web Push 或企业微信应用消息
 - [ ] 会议精神：截图 OCR 仍有偶发形近字错误，考虑对地点做「字库白名单」校验（致理楼/文科楼等）
 - [ ] 课表事件当前 `kind=other`，等前端确定要不要加 `class` 类型再改

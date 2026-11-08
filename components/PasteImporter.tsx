@@ -112,7 +112,7 @@ export default function PasteImporter() {
       for (const m of picked) {
         const startTime = m.startTime || "09:00";
         await createEvent({
-          kind: "meeting",
+          kind: m.type === "deadline" ? "deadline" : "meeting",
           title: m.title,
           startAt: new Date(`${m.date}T${startTime}:00`).toISOString(),
           endAt: m.endTime ? new Date(`${m.date}T${m.endTime}:00`).toISOString() : undefined,
@@ -123,7 +123,7 @@ export default function PasteImporter() {
           source: "chat-import",
         });
       }
-      setResultMsg(`已加入 ${picked.length} 场会议`);
+      setResultMsg(`已加入 ${picked.length} 条（会议 ${picked.filter((m) => m.type !== "deadline").length} / 截止 ${picked.filter((m) => m.type === "deadline").length}）`);
       setMeetings([]);
       setText("");
       setImage("");
@@ -375,7 +375,7 @@ export default function PasteImporter() {
       {meetings.length > 0 && (
         <div className="mt-4 rounded-xl bg-white p-5 shadow-sm">
           <p className="mb-1 text-sm text-gray-600">
-            识别到 <b>{meetings.length}</b> 场会议，确认后加入日历（时间、地点、提醒都可改）：
+            识别到 <b>{meetings.length}</b> 条（会议 {meetings.filter((m) => m.type !== "deadline").length}、截止 {meetings.filter((m) => m.type === "deadline").length}），确认后加入日历（时间、地点、提醒都可改）：
           </p>
           <p className="mb-3 text-xs text-gray-400">
             提醒目前记为事件备注里的「提前 N 分钟」，接入推送后按这个值发提醒。
@@ -389,6 +389,13 @@ export default function PasteImporter() {
                     checked={m.selected}
                     onChange={(e) => patchMeeting(index, { selected: e.target.checked })}
                   />
+                  <span
+                    className={`rounded px-1.5 py-0.5 text-[11px] ${
+                      m.type === "deadline" ? "bg-orange-50 text-orange-600" : "bg-cyan-50 text-cyan-700"
+                    }`}
+                  >
+                    {m.type === "deadline" ? "截止" : "会议"}
+                  </span>
                   <input
                     value={m.title}
                     onChange={(e) => patchMeeting(index, { title: e.target.value })}
