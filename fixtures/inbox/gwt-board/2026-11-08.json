@@ -1,0 +1,25 @@
+{
+  "_note": "示例数据，非真实通知。用于验证适配器与管道，格式贴近公文通列表接口的嵌套形态。",
+  "code": 0,
+  "data": {
+    "total": 2,
+    "list": [
+      {
+        "id": 20261108001,
+        "title": "关于2026-2027学年第一学期期末考试安排的通知",
+        "deptName": "教务部",
+        "publishTime": "2026-11-08 09:30:00",
+        "url": "https://www1.szu.edu.cn/board/view.asp?id=20261108001",
+        "content": "<p>&nbsp;&nbsp;&nbsp;&nbsp;各学院：</p><p>&nbsp;&nbsp;&nbsp;&nbsp;本学期期末考试定于2026年12月28日至2027年1月8日进行，考场安排另行公布。</p><p>&nbsp;&nbsp;&nbsp;&nbsp;请于2026年12月5日前完成考试时间冲突申报，逾期不再受理。</p><p>&nbsp;&nbsp;&nbsp;&nbsp;联系人：张老师，电话 2653-xxxx。</p><p>&nbsp;&nbsp;&nbsp;&nbsp;阅读 128 次</p>"
+      },
+      {
+        "id": 20261108002,
+        "title": "关于组织2026年秋季体质健康测试的通知",
+        "deptName": "体育学院",
+        "publishTime": "2026-11-07 16:20:00",
+        "url": "https://www1.szu.edu.cn/board/view.asp?id=20261108002",
+        "content": "<p>全体本科生：</p><p>本学期体质健康测试定于2026年11月21日进行，地点为元平体育场。</p><p>请提前在系统内预约，未预约者不得入场。</p>"
+      }
+    ]
+  }
+}

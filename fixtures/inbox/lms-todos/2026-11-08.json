@@ -1,0 +1,26 @@
+{
+  "_note": "示例数据，非真实待办。形状对齐畅课 /api/todos 的返回（见 extension/parser.js）。",
+  "todo_list": [
+    {
+      "id": 8812301,
+      "title": "实验4 Python 算法设计",
+      "course_id": 4512,
+      "course_name": "计算机导论",
+      "end_time": "2026-11-15T23:59:00+08:00"
+    },
+    {
+      "id": 8812344,
+      "title": "期中测验（在线）",
+      "course_id": 4512,
+      "course_name": "计算机导论",
+      "end_time": "2026-11-20T14:00:00+08:00"
+    },
+    {
+      "id": 8812402,
+      "title": "课程设计开题报告",
+      "course_id": 4601,
+      "course_name": "数据结构",
+      "end_time": "2026-11-29T23:59:00+08:00"
+    }
+  ]
+}
