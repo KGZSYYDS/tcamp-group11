@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "深大日历同步助手",
+  "version": "0.4.2",
+  "description": "在畅课教学平台页面自动读取课程与作业，一键同步到深大日历。登录态不离开你的浏览器，不收集任何账号密码。",
+  "permissions": ["storage", "tabs", "downloads", "alarms"],
+  "host_permissions": [
+    "*://lms.szu.edu.cn/*",
+    "*://www1.szu.edu.cn/*",
+    "https://szu-calendar.app.workbuddy.host/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "深大日历同步助手"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://lms.szu.edu.cn/*", "*://www1.szu.edu.cn/*"],
+      "js": ["page-hook.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["*://lms.szu.edu.cn/*", "*://www1.szu.edu.cn/*"],
+      "js": ["content-lms.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://szu-calendar.app.workbuddy.host/*"],
+      "js": ["content-calendar.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

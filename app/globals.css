@@ -1,0 +1,10 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background: linear-gradient(180deg, #e9edfa 0%, #f6f7f9 320px);
+  background-attachment: fixed;
+  color: #1f2933;
+  font-feature-settings: "cv02", "cv03", "cv04";
+}

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+  body { width: 320px; margin: 0; font-family: "Microsoft YaHei", system-ui, sans-serif; background: #f6f7f9; color: #1f2933; }
+  .wrap { padding: 16px; }
+  h1 { font-size: 15px; margin: 0 0 4px; color: #4f46e5; }
+  .sub { font-size: 12px; color: #6b7280; margin-bottom: 12px; }
+  .stat { background: #fff; border-radius: 10px; padding: 12px; margin-bottom: 12px; font-size: 12px; color: #4b5563; }
+  .stat b { color: #4f46e5; font-size: 18px; }
+  button { display: block; width: 100%; border: none; border-radius: 8px; padding: 9px 0; font-size: 13px; cursor: pointer; margin-bottom: 8px; }
+  .primary { background: #4f46e5; color: #fff; }
+  .primary:hover { background: #4338ca; }
+  .ghost { background: #fff; color: #4b5563; border: 1px solid #e5e7eb; }
+  .ghost:hover { background: #f3f4f6; }
+  .msg { font-size: 12px; margin: 6px 0; min-height: 16px; }
+  .ok { color: #059669; } .err { color: #dc2626; } .muted { color: #9ca3af; }
+  .foot { font-size: 11px; color: #9ca3af; line-height: 1.7; margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>深大日历同步助手</h1>
+  <div class="sub">畅课教学平台 → 深大日历</div>
+  <div class="stat">
+    已捕获接口数据 <b id="count">0</b> 条<br>
+    <span class="muted" id="hint">在畅课页面浏览课程 / 作业列表后点同步</span>
+  </div>
+  <div class="stat">
+    公文通自动采集：待解析 <b id="pendingCount">0</b> 条<br>
+    <span class="muted" id="scanInfo">每小时自动检查 · 尚未检查</span>
+    <button class="ghost" id="scanNow" style="margin-top:6px;margin-bottom:0;">立即检查公文通</button>
+  </div>
+  <p class="msg" id="msg"></p>
+  <button class="primary" id="sync">同步到深大日历</button>
+  <button class="primary" id="extract" style="background:#7c3aed;">采集当前页面为通知</button>
+  <div style="margin-bottom:8px;">
+    <input id="keyword" placeholder="通知关键词过滤（如 体测，可留空）" style="width:100%;box-sizing:border-box;border:1px solid #e5e7eb;border-radius:8px;padding:7px 10px;font-size:12px;outline:none;">
+  </div>
+  <button class="ghost" id="export">导出样本（适配调试用）</button>
+  <button class="ghost" id="clear">清空捕获数据</button>
+  <div class="foot">
+    数据只经过你自己的浏览器，不收集账号密码。<br>
+    样本含你的课程信息，仅建议发给开发者做解析适配。
+  </div>
+</div>
+<script src="parser.js"></script>
+<script src="popup.js"></script>
+</body>
+</html>

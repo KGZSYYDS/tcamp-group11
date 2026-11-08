@@ -1,0 +1,24 @@
+# 依赖与构建产物
+node_modules/
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+
+# 本地个人数据
+data/
+
+# 环境变量与密钥
+.env
+.env.local
+.env.*.local
+
+# 插件打包产物（public 下供下载的 zip 需保留）
+*.zip
+!public/szu-calendar-sync.zip
+szu-calendar-sync-v*/
+
+# 系统与日志
+.DS_Store
+Thumbs.db
+*.log
