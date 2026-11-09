@@ -25,6 +25,24 @@ npm run dev
 
 > 需要 Node.js 18+。首次安装约 2–5 分钟（依赖体积较大）。
 
+### 自检登录与畅课
+
+服务起来后另开一个终端：
+
+```bash
+node scripts/selfcheck.mjs
+```
+
+学号密码可交互输入（密码不回显），也可以用环境变量：
+
+```bash
+SZU_USER=2024xxxx SZU_PASS=*** node scripts/selfcheck.mjs
+```
+
+脚本只连 `localhost`，密码不会发到外部。它依次验证
+**服务 → 统一认证 → 会话 → 档案 → 课表 → 畅课登录 → 畅课作业**，
+断在哪一步会直接说明原因和下一步该做什么。
+
 ## 目录
 
 ```
