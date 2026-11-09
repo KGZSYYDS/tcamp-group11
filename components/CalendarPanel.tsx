@@ -23,6 +23,7 @@ import { MonthView, WeekView } from "./calendar/MonthWeekView";
 import TimelineView from "./calendar/TimelineView";
 import EventDialog from "./calendar/EventDialog";
 import type { DialogState, EventFormData } from "./calendar/EventDialog";
+import { RippleButton } from "./calendar/ui/RippleButton";
 import Dock from "./calendar/ui/Dock";
 import "./calendar/ui/Dock.css";
 import { AnimatedBackground } from "./calendar/ui/AnimatedBackground";
@@ -68,7 +69,7 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
   const { events, profile, loaded, error, createAgendaEvent, removeAgendaEvent } =
     useAgenda(currentUserId);
 
-  const [view, setView] = useState<ViewId>("clock");
+  const [view, setView] = useState<ViewId>("month");
   const [quickSwitch, setQuickSwitch] = useState(false);
   const [selected, setSelected] = useState<Date>(startOfToday);
   const [enabled, setEnabled] = useState<AgendaVisual[]>([...FILTERS]);
@@ -230,7 +231,7 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
         : `${selected.getMonth() + 1} 月 ${selected.getDate()} 日`;
 
   return (
-    <div className="calendar-app">
+    <div className="calendar-app" data-view={view}>
       <div className="date-controls">
         <div className="date-navigation">
           <button type="button" className="icon-button" aria-label="上一时段" onClick={() => navigate(-1)}>
@@ -246,14 +247,14 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
           <button type="button" className="icon-button nav-action" aria-label="搜索日程" onClick={() => open({ kind: "search" })}>
             <Search size={18} />
           </button>
-          <button
+          <RippleButton
             type="button"
             className="icon-button nav-action add-quick"
             aria-label="新建日程"
             onClick={() => open({ kind: "add" })}
           >
             <Plus size={18} />
-          </button>
+          </RippleButton>
         </div>
 
         <div className="filter-group">
@@ -418,11 +419,11 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
           key={String(reduced)}
           className="view-dock"
           theme="light"
-          baseItemSize={58}
-          magnification={72}
+          baseItemSize={44}
+          magnification={56}
           distance={120}
-          panelHeight={76}
-          gap={18}
+          panelHeight={58}
+          gap={12}
           tiles={false}
           showLabels={false}
           items={VIEWS.map((item) => {

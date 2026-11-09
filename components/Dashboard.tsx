@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { RippleButton } from "./calendar/ui/RippleButton";
 import type { Ddl } from "@/lib/types";
 import { cloud } from "@/lib/cloud";
 import { createDdl, deleteDdl, listDdls, setDdlStatus } from "@/lib/data";
@@ -175,8 +176,8 @@ export default function Dashboard() {
   if (!session) return <LoginPanel />;
 
   return (
-    <main className="mx-auto max-w-4xl px-4 py-2 sm:py-6 lg:py-8">
-      <header className="mb-2 flex items-center justify-between sm:mb-6">
+    <main className="app-shell" data-tab={tab}>
+      <header className="app-header">
         <div className="flex items-center gap-2 sm:gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 shadow-md shadow-indigo-200 sm:h-11 sm:w-11 sm:rounded-2xl">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="sm:hidden">
@@ -192,7 +193,7 @@ export default function Dashboard() {
           </div>
           <div>
             <h1 className="text-lg font-bold tracking-tight sm:text-2xl">深大日历</h1>
-            <p className="mt-0.5 hidden text-sm text-gray-500 sm:block">作业、签到、考试、体测——与你有关的每一天</p>
+            <p className="mt-0.5 hidden text-sm text-gray-500 sm:block">把在意的事，放进时间里</p>
           </div>
         </div>
         {tab === "ddl" && (
@@ -205,17 +206,18 @@ export default function Dashboard() {
         )}
       </header>
 
-      <nav className="mb-2 inline-flex max-w-full gap-1 overflow-x-auto rounded-full bg-white p-1 shadow-sm ring-1 ring-gray-100 sm:mb-4">
+      <nav className="app-nav" aria-label="应用导航">
         {([
-          ["calendar", "深大日历"],
-          ["ddl", "作业 DDL"],
-          ["checkin", "签到统计"],
-          ["paste", "粘贴导入"],
+          ["calendar", "日历"],
+          ["ddl", "作业"],
+          ["checkin", "签到"],
+          ["paste", "导入"],
           ["me", "我的"],
         ] as const).map(([key, label]) => (
-          <button
+          <RippleButton
             key={key}
             onClick={() => setTab(key)}
+            aria-current={tab === key ? "page" : undefined}
             className={`whitespace-nowrap rounded-full px-3 py-1 text-xs font-medium transition-colors sm:px-4 sm:py-1.5 sm:text-sm ${
               tab === key
                 ? "bg-indigo-600 text-white shadow-sm"
@@ -223,10 +225,11 @@ export default function Dashboard() {
             }`}
           >
             {label}
-          </button>
+          </RippleButton>
         ))}
       </nav>
 
+      <div className="app-content" key={tab}>
       {tab === "calendar" && <CalendarPanel currentUserId={session?.user?.id || ""} />}
       {tab === "checkin" && <CheckinPanel />}
       {tab === "paste" && <PasteImporter />}
@@ -234,16 +237,16 @@ export default function Dashboard() {
 
       {tab === "ddl" && (
         <>
-          <section className="mb-6 grid grid-cols-3 gap-3">
-            <div className="rounded-xl bg-white p-4 shadow-sm">
+          <section className="mb-3 grid grid-cols-3 gap-3">
+            <div className="rounded-xl bg-white p-3 shadow-sm">
               <div className="text-2xl font-bold text-indigo-600">{stats.pending}</div>
               <div className="mt-1 text-xs text-gray-500">待完成</div>
             </div>
-            <div className="rounded-xl bg-white p-4 shadow-sm">
+            <div className="rounded-xl bg-white p-3 shadow-sm">
               <div className="text-2xl font-bold text-red-500">{now ? stats.urgent : "-"}</div>
               <div className="mt-1 text-xs text-gray-500">48 小时内截止</div>
             </div>
-            <div className="rounded-xl bg-white p-4 shadow-sm">
+            <div className="rounded-xl bg-white p-3 shadow-sm">
               <div className="text-2xl font-bold text-emerald-500">{stats.done}</div>
               <div className="mt-1 text-xs text-gray-500">已完成</div>
             </div>
@@ -422,7 +425,8 @@ export default function Dashboard() {
         </>
       )}
 
-      <footer className="mt-10 text-center text-xs text-gray-400">
+      </div>
+      <footer className="app-footer">
         个人数据仅自己可见 · 公共事件按学院 / 年级匹配 · 数据云端同步
       </footer>
       <SyncReceiver />

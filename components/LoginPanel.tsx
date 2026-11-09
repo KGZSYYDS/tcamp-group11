@@ -77,8 +77,8 @@ export default function LoginPanel() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-4 py-12">
-      <div className="mb-6 text-center">
+    <main className="login-shell mx-auto flex min-h-screen max-w-md flex-col justify-center px-4 py-6">
+      <div className="login-brand mb-6 text-center">
         <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-600 shadow-lg shadow-indigo-200">
           <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <rect x="3" y="4" width="18" height="18" rx="3" />
@@ -104,6 +104,7 @@ export default function LoginPanel() {
             <button
               key={m}
               type="button"
+              aria-pressed={method === m}
               onClick={() => {
                 setMethod(m);
                 setAccount("");

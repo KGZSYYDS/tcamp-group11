@@ -226,7 +226,7 @@ export default function Dock({
       role="toolbar"
       aria-label="视图切换"
       className={`dock dock--bottom${tiles ? "" : " dock--bare"}${className ? ` ${className}` : ""}`}
-      style={{ ...(THEMES[theme] ?? THEMES.light), ...style } as CSSProperties}
+      style={{ ...(THEMES[theme] ?? THEMES.light), "--dock-thickness": `${thickness}px`, "--dock-gap": `${gap * fit}px`, ...style } as CSSProperties}
     >
       <div className="dock-panel">
         {items.map((item, index) => (

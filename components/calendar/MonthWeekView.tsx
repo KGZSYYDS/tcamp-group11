@@ -1,6 +1,7 @@
 "use client";
 
-import { motion } from "motion/react";
+import { useState } from "react";
+import { minuteOf } from "@/lib/orbit";
 import { Coffee } from "lucide-react";
 import type { AgendaEvent } from "@/lib/agenda";
 import { dateKey } from "@/lib/agenda";
@@ -34,6 +35,7 @@ export function MonthView({
 
   return (
     <section className="month-card">
+      <div className="month-board">
       <div className="month-heading">
         <strong>
           {selected.getMonth() + 1}
@@ -42,14 +44,14 @@ export function MonthView({
         <span>点击日期，展开一天</span>
       </div>
 
-      <div className="month-grid">
+      <div className="month-grid" style={{ gridTemplateRows: `28px repeat(${Math.ceil((((first.getDay()+6)%7) + new Date(selected.getFullYear(), selected.getMonth()+1, 0).getDate())/7)}, minmax(0, 1fr))` }}>
         {"一二三四五六日".split("").map((d) => (
           <div className="weekday" key={d}>
             周{d}
           </div>
         ))}
 
-        {Array.from({ length: 42 }, (_, i) => {
+        {Array.from({ length: Math.ceil((((first.getDay()+6)%7) + new Date(selected.getFullYear(), selected.getMonth()+1, 0).getDate())/7)*7 }, (_, i) => {
           const date = addDays(begin, i);
           const key = dateKey(date);
           const events = eventsFor(date);
@@ -100,6 +102,7 @@ export function MonthView({
         })}
       </div>
 
+      </div>
       <div className="month-selected">
         <div className="section-title">
           <h3>
@@ -141,91 +144,31 @@ const PERIODS = [
   "19:50",
 ];
 
-/** 课表：按周铺开，事件按开始时间落到最近的节次 */
+/** A compact full-week overview, with details on demand instead of cropped titles. */
 export function WeekView({ selected, eventsFor, onEvent }: ViewProps) {
   const monday = addDays(selected, -((selected.getDay() + 6) % 7));
-  const subjectColors = ["#EDF0FF", "#E7EEFF", "#FFF0E5", "#F0E9FA"];
-  const selectedKey = dateKey(selected);
-
-  function slotOf(start: string) {
-    let slot = 0;
-    PERIODS.forEach((time, index) => {
-      if (time <= start) slot = index;
-    });
-    return slot;
+  const [expanded, setExpanded] = useState<Date | null>(null);
+  const marks = [...PERIODS, "20:40"].map(minuteOf);
+  function position(time: string) {
+    const n = minuteOf(time);
+    if (n < marks[0]) return 0;
+    if (n >= marks[12]) return 11.7;
+    const i = marks.findIndex((m, i) => n >= m && n < marks[i+1]);
+    return i + (n - marks[i]) / (marks[i+1] - marks[i]);
   }
-
-  return (
-    <section className="week-card">
-      <div className="week-info">
-        <span>
-          周视图
-          <span className="semester-note"> · {monday.getMonth() + 1}月{monday.getDate()}日起</span>
-        </span>
-        <span>共 7 天 · 按开始时间归入节次</span>
-      </div>
-
-      <div className="week-scroll">
-        <div className="week-grid">
-          <div className="week-label">节次</div>
-          {Array.from({ length: 7 }, (_, i) => {
-            const date = addDays(monday, i);
-            return (
-              <div
-                className={`week-label ${dateKey(date) === selectedKey ? "selected" : ""}`}
-                key={i}
-              >
-                <span>周{"一二三四五六日"[i]}</span>
-                <strong>{date.getDate()}</strong>
-              </div>
-            );
-          })}
-
-          <div className="period-column">
-            {PERIODS.map((time, i) => (
-              <div key={time}>
-                <strong>{i + 1}</strong>
-                <small>{time}</small>
-              </div>
-            ))}
-          </div>
-
-          {Array.from({ length: 7 }, (_, i) => {
-            const date = addDays(monday, i);
-            const dayEvents = eventsFor(date).filter((event) => !event.allDay);
-            return (
-              <div className="week-column" key={i}>
-                {dayEvents.map((event) => {
-                  const slot = slotOf(event.start);
-                  const [sh, sm] = event.start.split(":").map(Number);
-                  const [eh, em] = event.end.split(":").map(Number);
-                  const minutes = Math.max(30, eh * 60 + em - (sh * 60 + sm));
-                  const height = Math.max(1, (minutes / 50) * 1.28);
-                  const meta = VISUAL_META[event.visual];
-                  return (
-                    <button
-                      key={event.id}
-                      type="button"
-                      className="course-block"
-                      title={`${event.title} · ${event.location} · ${event.start}`}
-                      onClick={() => onEvent(event)}
-                      style={{
-                        top: `${slot * 64 + 3}px`,
-                        height: `${Math.min(height, 6) * 64 - 6}px`,
-                        background: event.visual === "course" ? subjectColors[i % 4] : meta.bg,
-                      }}
-                    >
-                      <strong>{event.title}</strong>
-                      <small>{event.location}</small>
-                      <span>{event.start}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </section>
-  );
+  return <section className="week-card">
+    <div className="week-info"><span>本周全览 <span className="semester-note">· {monday.getMonth()+1}月{monday.getDate()}日起</span></span><span>点日期查看当天全部事项</span></div>
+    <div className="week-scroll"><div className="week-grid">
+      <div className="week-label">节次</div>
+      {Array.from({length:7}, (_,i) => { const date=addDays(monday,i), list=eventsFor(date), allDay=list.filter(e=>e.allDay); return <button key={i} type="button" onClick={()=>setExpanded(date)} className={`week-label ${dateKey(date)===dateKey(selected)?"selected":""}`} aria-label={`查看周${"一二三四五六日"[i]}全部 ${list.length} 项日程`}><span>周{"一二三四五六日"[i]}</span><strong>{date.getDate()}</strong>{allDay.length>0 && <small>全天 {allDay.length}</small>}</button>; })}
+      <div className="period-column">{PERIODS.map((time,i)=><div key={time}><strong>{i+1}</strong><small>{time}</small></div>)}</div>
+      {Array.from({length:7},(_,i)=>{
+        const dayEvents=eventsFor(addDays(monday,i)).filter(e=>!e.allDay);
+        const ends:number[]=[];
+        const blocks=dayEvents.map(event=>{const start=position(event.start); const end=event.end<=event.start?12:Math.min(12,Math.max(start+.8,position(event.end)));return {event,start,end};}).sort((a,b)=>a.start-b.start||b.end-a.end).map(item=>{let lane=ends.findIndex(e=>e<=item.start); if(lane<0)lane=ends.length; ends[lane]=item.end;return {...item,lane};});
+        return <div className="week-column" key={i}>{blocks.map(({event,start,end,lane})=><button key={event.id} type="button" className="course-block" title={`${event.title} · ${event.start}–${event.end}${event.location?' · '+event.location:''}`} onClick={()=>onEvent(event)} style={{top:`${start/12*100}%`,height:`${(end-start)/12*100}%`,left:`calc(${lane/ends.length*100}% + 2px)`,width:`calc(${100/ends.length}% - 4px)`,background:VISUAL_META[event.visual].bg,color:VISUAL_META[event.visual].dark,borderColor:VISUAL_META[event.visual].color}}><strong>{event.title}</strong><small>{event.location}</small><span>{event.start}</span></button>)}</div>;
+      })}
+    </div></div>
+    {expanded && <div className="week-day-detail"><div className="section-title"><h3>{expanded.getMonth()+1}月{expanded.getDate()}日 · 全部安排</h3><button className="subtle" onClick={()=>setExpanded(null)}>收起 ×</button></div><div className="week-day-events">{eventsFor(expanded).length?eventsFor(expanded).map(event=><EventRow key={event.id} event={event} onClick={()=>onEvent(event)}/>):<p className="empty">这天还没有安排</p>}</div></div>}
+  </section>;
 }

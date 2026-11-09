@@ -151,7 +151,7 @@ export default function PasteImporter() {
 
   return (
     <div>
-      <div className="mb-4 flex items-center gap-2">
+      <div className="import-toolbar mb-3 flex flex-wrap items-center gap-2">
         {(["auto", "ddl", "event"] as const).map((m) => (
           <button
             key={m}
@@ -187,7 +187,7 @@ export default function PasteImporter() {
           value={text}
           onChange={(e) => setText(e.target.value)}
           onPaste={handlePaste}
-          rows={8}
+          rows={6}
           placeholder="Ctrl+V 粘贴后自动解析，也可点上方「读取剪贴板」"
           className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-indigo-400"
         />

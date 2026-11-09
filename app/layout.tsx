@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "@fontsource-variable/manrope";
 import "./globals.css";
 import "./styles/calendar.css";
+import "./styles/workspace.css";
 
 export const metadata: Metadata = {
   title: "深大日程助手",

@@ -43,7 +43,7 @@ export default function TimelineView({
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) {
-          setRange((prev) => ({ ...prev, end: Math.min(prev.end + 7, 120) }));
+          setRange((prev) => ({ ...prev, end: prev.end + 7 }));
         }
       },
       { root, rootMargin: "150px" }
@@ -77,7 +77,7 @@ export default function TimelineView({
           const date = addDays(selected, i + range.start);
           const events = eventsFor(date);
           return (
-            <div className="timeline-day" key={dateKey(date)}>
+            <div className={`timeline-day ${events.length ? "" : "is-empty"}`} key={dateKey(date)}>
               <div className="timeline-date">
                 <span>{date.getMonth() + 1}月</span>
                 <strong>{date.getDate()}</strong>
@@ -106,14 +106,11 @@ export default function TimelineView({
                           }
                         >
                           <span>
-                            {event.start}—{event.end}
+                            {event.allDay ? "全天" : `${event.start}–${event.end}`}
                             <small>{meta.name}</small>
                           </span>
                           <h3>{event.title}</h3>
-                          <p>
-                            <MapPin size={13} />
-                            {event.location || "未设置地点"}
-                          </p>
+                          {event.location && <p><MapPin size={13} />{event.location}</p>}
                           <span className="timeline-arrow" aria-hidden="true">
                             ↗
                           </span>

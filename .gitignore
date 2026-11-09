@@ -22,3 +22,6 @@ szu-calendar-sync-v*/
 .DS_Store
 Thumbs.db
 *.log
+
+# Local browser audit artifacts
+.playwright-cli/

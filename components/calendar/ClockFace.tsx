@@ -1,241 +1,80 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
-import { Coffee } from "lucide-react";
+import { Coffee, ChevronLeft, ChevronRight } from "lucide-react";
 import type { AgendaEvent, AgendaVisual } from "@/lib/agenda";
 import { dateKey, durationMinutes } from "@/lib/agenda";
-import { AnimatedBackground } from "./ui/AnimatedBackground";
+import { orbitTracks } from "@/lib/orbit";
 import { SlidingNumber } from "./ui/SlidingNumber";
 import { useReducedMotion } from "./ui/useMotionPreference";
 
-export const VISUAL_META: Record<
-  AgendaVisual,
-  { name: string; color: string; dark: string; bg: string }
-> = {
-  course: { name: "课程", color: "#7284EB", dark: "#3D4FA7", bg: "#EEF1FF" },
-  ddl: { name: "作业", color: "#E2A33C", dark: "#9A6A17", bg: "#FFF5E4" },
-  notice: { name: "校园", color: "#EC8955", dark: "#A44B1C", bg: "#FFF1E7" },
-  personal: { name: "个人", color: "#A58BD8", dark: "#72549E", bg: "#F3EEFB" },
+export const VISUAL_META: Record<AgendaVisual, { name: string; color: string; dark: string; bg: string }> = {
+  course: { name: "课程", color: "var(--course)", dark: "var(--course-ink)", bg: "var(--course-bg)" },
+  ddl: { name: "作业", color: "var(--ddl)", dark: "var(--ddl-ink)", bg: "var(--ddl-bg)" },
+  notice: { name: "校园", color: "var(--notice)", dark: "var(--notice-ink)", bg: "var(--notice-bg)" },
+  personal: { name: "个人", color: "var(--personal)", dark: "var(--personal-ink)", bg: "var(--personal-bg)" },
 };
-
-function toHour(time: string) {
-  const [h, m] = time.split(":").map(Number);
-  return h + m / 60;
+const round = (v: number) => Math.round(v * 100) / 100;
+function point(minute: number, r: number) {
+  const a = minute / 1440 * Math.PI * 2 - Math.PI / 2;
+  return { x: round(200 + Math.cos(a) * r), y: round(200 + Math.sin(a) * r) };
+}
+function arc(start: number, end: number, r: number) {
+  const a = point(start, r), b = point(Math.min(end, start + 1439.99), r);
+  return `M ${a.x} ${a.y} A ${r} ${r} 0 ${end - start > 720 ? 1 : 0} 1 ${b.x} ${b.y}`;
 }
 
-function point(hour: number, r = 156) {
-  const angle = (hour / 12) * Math.PI * 2 - Math.PI / 2;
-  // 固定两位小数：浮点尾差会让服务端与客户端产出不同字符串，触发 hydration 警告
-  return { x: round(200 + Math.cos(angle) * r), y: round(200 + Math.sin(angle) * r) };
-}
-
-function round(value: number) {
-  return Math.round(value * 100) / 100;
-}
-
-function arcPath(start: number, end: number, r: number) {
-  const a = point(start, r);
-  const b = point(end, r);
-  // 跨过 12 小时或首尾相接时用大弧，避免画出反向的短弧
-  const large = end - start > 6 ? 1 : 0;
-  return `M ${a.x} ${a.y} A ${r} ${r} 0 ${large} 1 ${b.x} ${b.y}`;
-}
-
-export default function ClockFace({
-  events,
-  selected,
-  onSelect,
-  instant = false,
-}: {
-  events: AgendaEvent[];
-  selected: Date;
-  onSelect: (event: AgendaEvent) => void;
-  instant?: boolean;
+export default function ClockFace({ events, selected, onSelect, instant = false }: {
+  events: AgendaEvent[]; selected: Date; onSelect: (event: AgendaEvent) => void; instant?: boolean;
 }) {
   const [now, setNow] = useState<Date | null>(null);
-  const [period, setPeriod] = useState("pm");
-  const [hovered, setHovered] = useState<string | null>(null);
-  const preference = useReducedMotion();
-  const reduced = preference || instant;
-
-  // 首帧不渲染时间，避免服务端与客户端时间不一致造成 hydration 报错
-  useEffect(() => {
-    setNow(new Date());
-    const timer = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const start = period === "am" ? 0 : 12;
-  const isToday = dateKey(selected) === dateKey(new Date());
-
-  const visible = events.filter((event) => {
-    if (event.allDay) return true;
-    const s = toHour(event.start);
-    const e = Math.max(toHour(event.end), s + 0.05);
-    return s < start + 12 && e > start;
-  });
-
-  const hands = now
-    ? [
-        { angle: (now.getHours() % 12) * 30 + now.getMinutes() * 0.5, r: 64, width: 4 },
-        { angle: now.getMinutes() * 6 + now.getSeconds() * 0.1, r: 98, width: 2 },
-        { angle: now.getSeconds() * 6, r: 113, width: 1 },
-      ]
-    : [];
-
-  return (
-    <section className="clock-card">
-      <div className="clock-card-top">
-        <span>
-          <span className="live-dot" />
-          时间正在发生
-        </span>
-        <div className="period-switch" aria-label="日程环时段">
-          <AnimatedBackground
-            defaultValue={period}
-            onValueChange={(id) => {
-              if (id === "am" || id === "pm") setPeriod(id);
-            }}
-            className="period-highlight"
-          >
-            {[
-              ["am", "上午"],
-              ["pm", "下午"],
-            ].map(([id, label]) => (
-              <button key={id} data-id={id} type="button" aria-pressed={period === id}>
-                {label}
-              </button>
-            ))}
-          </AnimatedBackground>
-        </div>
+  const [hovered, setHovered] = useState<AgendaEvent | null>(null);
+  const [page, setPage] = useState(0);
+  const preference = useReducedMotion(), reduced = preference || instant;
+  useEffect(() => { setNow(new Date()); const t = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(t); }, []);
+  useEffect(() => { setPage(0); setHovered(null); }, [events, selected]);
+  const tracks = useMemo(() => orbitTracks(events), [events]);
+  const lanes = Math.max(1, ...tracks.map(t => t.lane + 1));
+  const pages = Math.ceil(lanes / 4), activePage = Math.min(page, pages - 1);
+  const visible = tracks.filter(t => Math.floor(t.lane / 4) === activePage);
+  const allDay = events.filter(e => e.allDay);
+  const isToday = now && dateKey(now) === dateKey(selected);
+  const minute = now ? now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60 : 0;
+  const marker = point(minute, 173), lineStart = point(minute, 105);
+  return <section className="clock-card orbit-card">
+    <div className="clock-card-top"><span><i className="live-dot" />一日轨迹</span><span className="orbit-format">24H / {isToday ? "此刻" : `${selected.getMonth()+1}.${selected.getDate()}`}</span></div>
+    <div className="orbit-dial">
+      <svg viewBox="0 0 400 400" className="orbit-svg" aria-label="24 小时日程表盘，点击色带查看日程">
+        <circle cx="200" cy="200" r="176" className="orbit-outline" />
+        {Array.from({ length: 96 }, (_, i) => {
+          const a = point(i * 15, 177), b = point(i * 15, i % 4 === 0 ? 184 : 180);
+          return <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y} className={i % 4 === 0 ? "orbit-tick major" : "orbit-tick"} />;
+        })}
+        {Array.from({ length: 8 }, (_, i) => { const p = point(i * 180, 194); return <text key={i} x={p.x} y={p.y} textAnchor="middle" dominantBaseline="central">{String(i * 3).padStart(2,"0")}</text>; })}
+        {[0,1,2,3].map(i => <circle key={i} cx="200" cy="200" r={161-i*15} className="orbit-track" />)}
+        {visible.map(({ event, start, end, lane }) => <motion.path key={event.id} d={arc(start + Math.min(1, (end-start)/8), end - Math.min(1, (end-start)/8), 161-(lane%4)*15)}
+          fill="none" stroke={VISUAL_META[event.visual].color} strokeWidth={hovered?.id === event.id ? 11 : 8} strokeLinecap="butt"
+          className="orbit-event" tabIndex={0} role="button" aria-label={`${event.title}，${event.start} 至 ${event.end}`}
+          initial={{ pathLength: reduced ? 1 : 0, opacity: 1 }} animate={{ pathLength: 1, opacity: hovered && hovered.id !== event.id ? .35 : 1 }}
+          transition={{ duration: reduced ? 0 : .55, ease: [.22,1,.36,1] }}
+          onMouseEnter={() => setHovered(event)} onMouseLeave={() => setHovered(null)} onFocus={() => setHovered(event)} onBlur={() => setHovered(null)}
+          onClick={() => onSelect(event)} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(event); } }}>
+          <title>{event.start}–{event.end} · {event.title}</title>
+        </motion.path>)}
+        {isToday && <g className="orbit-now" pointerEvents="none"><line x1={lineStart.x} y1={lineStart.y} x2={marker.x} y2={marker.y} /><circle cx={marker.x} cy={marker.y} r="4" /></g>}
+      </svg>
+      <div className="orbit-center"><span>{isToday ? "正在发生的今天" : `${selected.getMonth()+1} 月 ${selected.getDate()} 日`}</span>
+        <div className="orbit-time" aria-label={now ? `${now.getHours()}:${String(now.getMinutes()).padStart(2,"0")}` : "正在读取时间"}>{now ? <><SlidingNumber value={now.getHours()} padStart /><b>:</b><SlidingNumber value={now.getMinutes()} padStart /></> : "--:--"}</div>
+        <span>{isToday ? "一圈，是完整的一天" : "当前时间 · 当日计划"}</span>
+        <div className="orbit-center-mark">✦</div>
       </div>
-
-      <div className="clock-face-wrap">
-        <svg
-          className="clock-svg"
-          viewBox="0 0 400 400"
-          role="img"
-          aria-label="实时时钟，日程环显示所选日期的上午或下午安排"
-        >
-          <circle cx="200" cy="200" r="177" fill="none" stroke="#DCE0EA" strokeWidth=".8" />
-          <circle cx="200" cy="200" r="160" fill="none" stroke="#F0F1F7" strokeWidth="13" />
-
-          {Array.from({ length: 60 }, (_, i) => {
-            const a = point(i / 5, i % 5 ? 139 : 135);
-            const b = point(i / 5, 143);
-            return (
-              <line
-                key={i}
-                x1={a.x}
-                y1={a.y}
-                x2={b.x}
-                y2={b.y}
-                stroke={i % 5 ? "#C9CDDB" : "#7C839B"}
-                strokeWidth={i % 5 ? 1 : 2}
-              />
-            );
-          })}
-
-          {Array.from({ length: 12 }, (_, i) => {
-            const p = point(i, 115);
-            return (
-              <text key={i} x={p.x} y={p.y + 5} textAnchor="middle" className={i % 3 === 0 ? "major-number" : ""}>
-                {i || 12}
-              </text>
-            );
-          })}
-
-          {visible.map((event, i) => {
-            const s = event.allDay ? start : Math.max(start, toHour(event.start));
-            const rawEnd = event.allDay ? start + 12 : toHour(event.end);
-            const e = Math.min(start + 11.999, Math.max(rawEnd, s + 0.15));
-            const radius = 158 + (i * 12) / Math.max(visible.length, 1);
-            const meta = VISUAL_META[event.visual];
-            return (
-              <motion.path
-                key={event.id + period}
-                d={arcPath(s, e, radius)}
-                fill="none"
-                stroke={meta.color}
-                strokeWidth={hovered === event.id ? 17 : 11}
-                strokeLinecap="round"
-                initial={{ pathLength: reduced ? 1 : 0 }}
-                animate={{ pathLength: 1, opacity: hovered && hovered !== event.id ? 0.35 : 1 }}
-                transition={{ duration: reduced ? 0 : 0.28 }}
-                tabIndex={0}
-                role="button"
-                aria-label={`${event.title} ${event.start}至${event.end}`}
-                onMouseEnter={() => setHovered(event.id)}
-                onMouseLeave={() => setHovered(null)}
-                onFocus={() => setHovered(event.id)}
-                onBlur={() => setHovered(null)}
-                onClick={() => onSelect(event)}
-                onKeyDown={(evt) => {
-                  if (evt.key === "Enter" || evt.key === " ") {
-                    evt.preventDefault();
-                    onSelect(event);
-                  }
-                }}
-                className="clock-arc"
-              />
-            );
-          })}
-
-          <text x="200" y="248" textAnchor="middle" className="clock-center-label">
-            现在的时间
-          </text>
-
-          {now
-            ? hands.map((hand, i) => (
-                <line
-                  key={i}
-                  x1="200"
-                  y1={i === 2 ? "216" : "200"}
-                  x2="200"
-                  y2={200 - hand.r}
-                  transform={`rotate(${hand.angle} 200 200)`}
-                  stroke={i === 2 ? "#ED804A" : "#363D5F"}
-                  strokeWidth={hand.width}
-                  strokeLinecap="round"
-                />
-              ))
-            : null}
-          <circle cx="200" cy="200" r="6" fill="#FFFFFF" stroke="#363D5F" strokeWidth="2" />
-        </svg>
-
-        <div
-          className="digital-clock"
-          role="timer"
-          aria-live="off"
-          aria-label={now ? now.toLocaleTimeString("zh-CN") : "当前时间"}
-        >
-          {now ? (
-            <>
-              <SlidingNumber value={now.getHours()} padStart />
-              <span>:</span>
-              <SlidingNumber value={now.getMinutes()} padStart />
-              <span className="digital-seconds">
-                <SlidingNumber value={now.getSeconds()} padStart />
-              </span>
-            </>
-          ) : (
-            <span className="digital-placeholder">--:--</span>
-          )}
-        </div>
-      </div>
-
-      <div className="clock-legend">
-        {(["course", "ddl", "notice", "personal"] as AgendaVisual[]).map((key) => (
-          <span key={key}>
-            <i style={{ background: VISUAL_META[key].color }} />
-            {VISUAL_META[key].name}
-          </span>
-        ))}
-      </div>
-
-    </section>
-  );
+    </div>
+    <div className="orbit-caption" aria-live="polite">{hovered ? <><strong>{hovered.start}–{hovered.end}</strong><span>{hovered.title}</span></> : <><strong>{tracks.length} 项定时安排</strong><span>色带长短代表时长 · 重叠事项分轨显示</span></>}</div>
+    {pages > 1 && <div className="orbit-pagination"><button aria-label="上一组轨道" disabled={!activePage} onClick={() => setPage(activePage-1)}><ChevronLeft size={15}/></button><span>轨道组 {activePage+1} / {pages} · 本组 {visible.length} 项</span><button aria-label="下一组轨道" disabled={activePage === pages-1} onClick={() => setPage(activePage+1)}><ChevronRight size={15}/></button></div>}
+    <div className="clock-legend">{Object.entries(VISUAL_META).map(([key, meta]) => <span key={key}><i style={{ background: meta.color }}/>{meta.name}</span>)}</div>
+    {allDay.length > 0 && <details className="all-day-tray"><summary>全天事项 <b>{allDay.length}</b><span>展开查看</span></summary><div>{allDay.map(e => <button key={e.id} onClick={() => onSelect(e)}>{e.title}<span>↗</span></button>)}</div></details>}
+  </section>;
 }
 
 export function EventRow({
@@ -274,7 +113,7 @@ export function EventRow({
           {minutes > 0 && !event.allDay ? ` · ${minutes} 分钟` : ""}
         </span>
         <h3>{event.title}</h3>
-        <p>{event.location || "未设置地点"}</p>
+        {event.location && <p>{event.location}</p>}
       </div>
       <span className="event-chevron" aria-hidden="true">
         ›

@@ -97,6 +97,7 @@ export default function EventDialog({
     <dialog
       ref={dialogRef}
       className="dialog"
+      aria-label={state?.kind === "search" ? "搜索日程" : state?.kind === "detail" ? "日程详情" : "新建日程"}
       onCancel={(e) => {
         e.preventDefault();
         onClose();
