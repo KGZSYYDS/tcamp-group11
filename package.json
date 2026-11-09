@@ -17,6 +17,7 @@
     "meetings:publish": "node scripts/collect-meetings.mjs --all-groups --publish",
     "ingest:notices": "node scripts/ingest-notices.mjs",
     "backfill:dates": "node scripts/backfill-dates.mjs",
+    "test": "node scripts/test-deadline.mjs && node scripts/test-parse-time.mjs && node scripts/test-reminders.mjs",
     "test:deadline": "node scripts/test-deadline.mjs",
     "test:parse-time": "node scripts/test-parse-time.mjs",
     "test:reminders": "node scripts/test-reminders.mjs"
