@@ -101,7 +101,7 @@
 - `DdlPanel`、`CheckinPanel`、`CalendarPanel`、`PasteImporter`、`SyncReceiver` 全部改读本机；`lib/data.ts` 里的云端 ddls / checkins 函数已删除。
 - 云库 `ddls` / `checkins` / `profiles` 三张表本来就是 **0 行**，无需迁移。
 - 副作用（好的）：作业与签到在**未登录状态**下也能正常增删改，不再受 RLS 和游客态限制。
-- 保留但网页不再使用：`app/api/ddls`、`app/api/checkins`、`app/api/import` 走的是服务端 `lib/store.ts`（写 `data/*.json`），属历史通道，别再往那儿加功能。
+- **已删除**（2026-11-09）：`app/api/ddls`、`app/api/checkins`、`app/api/events`、`app/api/import` 与服务端 `lib/store.ts`。它们写 `data/*.json`，而网页读的是 localStorage / 云库，写完页面看不到，属早期遗留通道。
 
 ### 1.4 三条产品要求的落地对照（2026-11-09）
 
