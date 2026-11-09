@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Checkin } from "@/lib/types";
-import { createCheckin, deleteCheckin, listCheckins, listDdls } from "@/lib/data";
+import { addCheckin, loadCheckins, loadDdls, removeCheckin } from "@/lib/local-store";
 
 function nowLocalInput() {
   const d = new Date();
@@ -32,7 +32,8 @@ export default function CheckinPanel() {
 
   const refresh = useCallback(async () => {
     try {
-      const [checkinItems, ddlItems] = await Promise.all([listCheckins(), listDdls()]);
+      const checkinItems = loadCheckins();
+      const ddlItems = loadDdls();
       setItems(checkinItems);
       setCourses(
         Array.from(
@@ -88,7 +89,7 @@ export default function CheckinPanel() {
     if (!form.course.trim() || !form.occurredAt) return;
     setSubmitting(true);
     try {
-      await createCheckin(form);
+      addCheckin(form);
       setForm({ course: "", teacher: "", occurredAt: nowLocalInput(), note: "" });
       setShowForm(false);
       await refresh();
@@ -99,12 +100,8 @@ export default function CheckinPanel() {
   }
 
   async function remove(id: string) {
-    try {
-      await deleteCheckin(id);
-      setItems((prev) => prev.filter((c) => c.id !== id));
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "删除失败");
-    }
+    removeCheckin(id);
+    setItems((prev) => prev.filter((c) => c.id !== id));
   }
 
   return (

@@ -1,5 +1,8 @@
 # 数据来源与权限分级
 
+> 要给外部对接的字段级格式（实体 / 文件 / 接口 / 扩展投递协议），见 **[`../examples/`](../examples/)**（真实数据样例）与 **[`schema/`](./schema/)**（JSON Schema）。
+> 与 `docs/schema/`（JSON Schema + 样例）。本文讲「数据从哪来、能不能拿」，那份讲「长什么样」。
+
 > 目标：用户授权越少，展示越多。下面是 2026-11-08 实测的深大数据面，按「拿到数据需要多少权限」分层。
 > 所有 URL 均为实测，标了 HTTP 结果。
 
@@ -28,7 +31,86 @@
 | 会议通知 | ✅ 收，用户主动粘贴群消息/截图 | 群聊库不解密，见 §三 |
 | 公文通通知 | ✅ 收，`scope=school` | 体测、报名、讲座等公共 DDL |
 
-**个人数据的归属**：采集器用公共可发布密钥写库，落库的 `owner_id` 只能是 `anon`。课表事件的 `source_url` 里带「学号 SHA-256 前 16 位」（`ehall://xskcb/<hash>/<JXBID>/…`），用户登录后在「我的」页填学号认领，这些行才被改成 `owner_id=<用户 id>`。前端 `CalendarPanel` 对 `scope=personal` 只展示 `own` 为真的事件，未认领的课表不显示，并提示去认领。**学号明文不进库、不进日志**。
+**个人数据的归属**：课表不进云库，所以没有归属问题。`events` 是全校共享的公开日历，往里面塞个人课表为了做到「只让本人看见」只能打身份标记 + 让用户认领，而学号可枚举，谁先认领算谁的，等于凭空造出一个「抢占」问题。
+
+现在的做法：采集器把课表写成**本机文件** `data/timetable/timetable-<学期>.json`，网页端在「我的」页导入后存进浏览器 `localStorage`（`lib/timetable-local.ts`）。谁的浏览器里有这个文件，就是谁的课表 —— 天然隔离，不需要哈希、不需要认领、换设备重跑一次即可。文件里同时带上姓名 / 学院 / 专业 / 年级，导入时自动填进画像，用户不用手打学院名（手填一旦和库里的字符串不一致，学院过滤就永远对不上）。
+
+**凭据**：统一身份认证密码只在「建立会话」时用一次，**不落盘**（`scripts/lib/session.mjs` 已不提供写密码的函数，旧的 `data/.credentials.json` 读到即删）。之后 30 天靠 cookie 缓存复用，失效才重新登录。密码可经 `SZU_USER` / `SZU_PASS` 环境变量或交互式输入传入，进程结束即消失。
+
+### 1.2 网页登录：统一认证，不是第三方账号
+
+网页的登录凭证就是**学号 + 统一认证密码**，走本机 Node 服务端（`app/api/auth/szu`）。
+
+**登录是可选项，不是门禁。** 首屏直接进日历：全校事件、截止日期、签到统计、粘贴导入都不需要登录。登录只多一件事 —— 自动把本学期课表同步进来。入口在右上角「登录」和「我的」页里，也可以整页不登录一直用。
+
+未登录时能做什么：
+
+| 功能 | 未登录 | 登录后 |
+|---|---|---|
+| 全校日历 / 截止日期 / 签到 / 粘贴导入 | 可用 | 可用 |
+| 个人画像（学院 / 年级过滤） | 手填 | 从学籍系统自动带回 |
+| 课表 | 「我的 → 从文件导入」`timetable-*.json` | 登录时自动同步，且可随时「重新同步」 |
+
+为什么不用手机号 / 邮箱验证码：那套只证明「你是某个账号的主人」，证明不了你是在校生，也换不出课表。学校只认 CAS 的 ticket。
+
+流程（`lib/szu/`）：
+
+1. `casLogin(学号, 密码, 办事大厅 service)` —— 密码按 authserver 的 `encrypt.js` 规则 AES 加密后提交，拿到 TGC + 办事大厅会话
+2. `casSsoInto(教务 service)` —— 带着 TGC 走 CAS 单点登录，**不再传密码**。不能登第二次：统一认证对短时间重复登录直接 401，且不告诉你是风控
+3. `fetchProfile` + `collectTimetable` —— 学籍、课表、第 1 周锚点一次性取回
+4. 签一个 HMAC token 写进 `httpOnly` cookie（`szu_session`，7 天）。服务端不存会话表，重启不丢
+
+课表随登录响应一起返回，前端直接写进 `localStorage`，所以登录完就能看到课表，不用再跑命令行、再导入文件。命令行采集仍保留（批量任务用），两者共用 `data/.ehall-session.json` 会话缓存，网页登录过之后脚本不用再输密码。
+
+密码的去向只有一条：本机进程内存 → `authserver.szu.edu.cn`。不写日志、不进云库、不落文件。会话 cookie 存在 `data/`（已被 `.gitignore` 忽略），它不是密码 —— 30 天自然过期，换设备无法使用。
+
+失败时的三种情况要分开报，别让用户以为密码错了：
+
+| 现象 | 真实原因 | 处理 |
+|---|---|---|
+| `BAD_CREDENTIALS` | 学号或密码不对 | 让用户核对 |
+| `NEED_CAPTCHA` | 该账号已被要求图形验证码 | 先用浏览器登录一次 authserver |
+| `RATE_LIMITED` | 短时间重复登录触发风控（401） | **不要重试**，等 30–60 分钟 |
+
+### 1.3 三层数据：谁存在哪（2026-11-09 定稿）
+
+这一条是产品的地基，先定边界再谈实现：**公共的进云，个人的留本机**。
+
+| 层 | 存在哪 | 有什么 | 谁能读 | 去重键 |
+|---|---|---|---|---|
+| **公共** | 云库 `events`（`scope=school`） | 公文通通知、官网公告、讲座活动、报名截止 | 所有人，含**未登录访客** | `source_url`（截止行加 `#ddl` 后缀） |
+| **公共** | 云库 `events`（`scope=college/grade/…`） | 手动发的院级/年级公告 | 登录用户 | 标题 + 起始时间 |
+| **个人** | 浏览器 `localStorage` | 课表、**作业截止（ddls）**、**签到记录（checkins）**、聊天记录里排出的会议/截止、自建「仅自己」事件、对公共截止的「已完成」勾选 | 只有这台设备 | 课表按学期覆盖；作业按 `course + title`；事项按 `日期+类型+标题` |
+| **个人** | `data/` 下的本机文件 | 采集器中间产物、微信原始导出、会话缓存 | 只有本机 | 文件内自带 |
+
+三条硬规则：
+
+1. **个人数据不进 `events` 表。** 那张表是全校共享的，要「只让本人看见」就得打身份标记 + 让用户认领，而学号可枚举 —— 谁先认领算谁的，等于凭空造一个抢占问题。
+2. **公共数据只在采集端要账号。** 公文通全站 CAS，但那是**采集者**（跑脚本的那台机器）登录一次；访客看的是已经落库的公共副本，自己不必有账号。
+3. **密码永远不落盘。** 网页登录只在内存里用一次换 ticket；命令行走环境变量，进程结束即消失。
+
+**2026-11-08 补漏（重要）**：上面三条以前只写在文档里，代码没全守住 —— 云库 `events` 里攒了 **211 行 `scope=personal`**（早期命令行走 `#ddl` 导入留下的），而 `events` 表对匿名 key 是全表可读，等于把这 211 条私人安排发给了每个访客。已处理：
+
+- 备份到 `data/backup/events-personal-20261108.json`（211 行，102 KB），然后从云库删除，现在 `personal` 计数 `*/0`，全表 847 → 636 行。
+- `lib/data.ts` 的 `listEvents()` 加 `scope != personal` 服务端过滤 —— 就算以后有脏数据写进去，也不会下发到浏览器。
+- 日历面板和粘贴导入里的「仅自己」事件改走 `local-store.ts` 的 `addMyEvent()`（`localStorage` 键 `szu-calendar:my-events:v1`），只有选「全校/学院/年级」才写云库。
+
+**2026-11-09 收口**：KG 定了「作业 + 截止日期属于第 2 层，不需要跨设备同步」。于是 `ddls` 与 `checkins` 整体搬进本机：
+
+- 新增 `local-store.ts` 的 `loadDdls / addDdl / setDdlStatus / removeDdl / importDdls`（键 `szu-calendar:ddls:v1`）和 `loadCheckins / addCheckin / removeCheckin`（键 `szu-calendar:checkins:v1`）。
+- `DdlPanel`、`CheckinPanel`、`CalendarPanel`、`PasteImporter`、`SyncReceiver` 全部改读本机；`lib/data.ts` 里的云端 ddls / checkins 函数已删除。
+- 云库 `ddls` / `checkins` / `profiles` 三张表本来就是 **0 行**，无需迁移。
+- 副作用（好的）：作业与签到在**未登录状态**下也能正常增删改，不再受 RLS 和游客态限制。
+- 保留但网页不再使用：`app/api/ddls`、`app/api/checkins`、`app/api/import` 走的是服务端 `lib/store.ts`（写 `data/*.json`），属历史通道，别再往那儿加功能。
+
+### 1.4 三条产品要求的落地对照（2026-11-09）
+
+| 要求 | 数据来源 | 存储 | 状态 |
+|---|---|---|---|
+| ① 未登录看公共信息（公文通 + 官网） | `collect-board.mjs`（要账号）+ `collect-web.mjs`（免登录） | 云库 `events`，`scope=school` | ✅ 已入库：board 582 / web 45 / 其他 9，共 636 行；其中未过期 179 行。匿名 key 实测可读 |
+| ② 登录后自动拿个人信息 | CAS → ehall `userInfo.json` + jwkw `currentUser.do` + 课表接口 | 姓名/学号/学院/专业/年级进 `szu_session` cookie；课表、**作业截止、签到**进 `localStorage` | ✅ 已实现，待本人真实账密实测 |
+| ③ 「我的」里导入微信记录 | 微信「复制消息」粘贴（主）/ 已导出的 `.json`·`.txt`（备），浏览器内规则解析 | `localStorage` | ✅ 已实现（`components/WeChatImporter.tsx` + `lib/wechat-paste.ts`），见 §3.6 |
+| 分层（非并列） | — | ①云库、②③本机 | ✅ 2026-11-09 收口：云库 `personal` 行已清零，`ddls`/`checkins` 已搬本机，云库只剩公共事件与画像 |
 
 ## 二、实测明细
 
@@ -47,7 +129,28 @@
 ### 2.2 畅课 `https://lms.szu.edu.cn/`
 
 - `/` → `302 /login`
-- demo 的插件已接（`extension/`），走 `page-hook` 抓接口 + DOM 兜底，作业和课程名都能拿
+- **服务端直连已打通**（2026-11-09）：`lib/szu-lms.ts` + `/api/lms/{status,login,ddls}`。
+  用户在「截止日期」页登录一次统一认证，作业就拉进本机，不装任何插件。
+- 登录链是**三跳**，跟旧文档假设的「直连 authserver」不一样。必须在同一个 cookie jar 里走完：
+  `broker` 那步会把 `session_code` 绑到 identity 的会话 cookie 上，另起一个 jar 会拿不到回跳。
+
+  ```
+  GET  lms.szu.edu.cn/login
+   302 identity.szu.edu.cn/auth/realms/szu/protocol/cas/login?service=…&ts=…
+   303 identity…/broker/cas-client/login?session_code=…&client_id=Tronclass&tab_id=…
+   303 authserver.szu.edu.cn/authserver/login?service=<identity broker 回调>
+   200 统一身份认证登录页（隐藏域 pwdEncryptSalt，AES-128-CBC 加密密码）
+  ```
+
+- **认证失败返回 401 + 带 `showErrorTip` 的登录页**，不是 200。按 200 判断会把「密码错」
+  误报成「被风控」—— 2026-11-09 实测踩到并改掉。
+- `GET /api/todos` 未登录时 302：这是「会话真的可用吗」的探针，比看页面标题可靠。
+- 待办字段：`todo_list[].title / end_time / course_id / course_name`；课程名缺失时用
+  `POST /api/my-courses`（`{}`）补一张 `id → name` 表。
+- 会话缓存：`data/.lms-session.json`，**只存 lms 域的 cookie**（identity / authserver 的不存）。
+  密码用完即弃，不写盘、不进日志。
+- `extension/` 里那套 page-hook 抓接口 + DOM 兜底是历史方案（要装扩展、还得专门去畅课页面逛一圈），
+  不再作为主路径；代码留着当参考。
 
 ### 2.3 办事大厅 `https://ehall.szu.edu.cn/new/index.html`
 
@@ -105,8 +208,29 @@
 | 地址 | 状态 | 说明 |
 |---|---|---|
 | `https://www.szu.edu.cn/` | 200 | 主站，无 CAS |
-| `https://www.szu.edu.cn/index/tzgg.htm` | 200 | 通知公告页，但列表是 JS 渲染：HTML 里既没有条目也没有 iframe/列表 ajax 接口，只有访问计数 `_jsq_()`。**纯 HTTP 抓不到**，只能在浏览器上下文里取 DOM（现有插件的 `extract-page` 正好能干） |
+| `https://www.szu.edu.cn/index/tzgg.htm` | 200 | 通知公告。**先前判断「JS 渲染抓不到」是错的**：列表在静态 HTML 里，只是编码不是 UTF-8 |
+| `https://www.szu.edu.cn/index/tzgg/N.htm` | 200 | 归档分页（`/1.htm`、`/2.htm`…），每页 10 条 |
+| `https://www.szu.edu.cn/kxyj/xsdt.htm` | 200 | 学术动态 |
+| `https://www.szu.edu.cn/index/sdxw.htm` | 200 | 深大新闻 |
 | `https://jwb.szu.edu.cn/` | 200 | 教务部站，公开 |
+
+**官网列表的正确读法**（实测 2026-11-09，`scripts/collect-web.mjs`）：
+
+```html
+<li class="wow fadeInUp">
+  <a href="../info/1154/21034.htm" class="con">
+    <div class="date"><div class="d1">2026</div><div class="d2">08-14</div></div>
+    <h4>关于推荐作品参加…</h4>
+  </a>
+</li>
+```
+
+两个坑：
+
+1. **编码骗人**：页面写着 `<meta charset="utf-8">`，实际字节是 GBK。按 UTF-8 解出来是 `鍥藉簡鑺傚亜`。必须先用 gb18030 解、看替换字符数量再决定要不要回落（和公文通同一套 `decode()`）。
+2. **导航菜单混在 `<li>` 里**：一页能捞出 50+ 个 `<li>`，真正的条目只有 10 个。**只用「有没有发布日期」来分**——导航项一个日期都没有，正文条目每一条都有。按标签选容器不可靠，按日期选可靠。
+
+另外 `xysh1/xshd.htm`（学生活动）没有日期结构，抓不出条目，已从频道表里去掉。公众号外链（`mp.weixin.qq.com`）只存标题与链接，不抓正文（单页 3MB，且正文没有更多时间信息）。
 
 域名探测：`jwxt.szu.edu.cn`、`cx.szu.edu.cn` 均无 DNS 记录（不要再按这两个名字写代码）。
 
@@ -164,7 +288,11 @@
 
 ### 3.4 提醒怎么落
 
-会议事件写入 `events`，`kind=meeting`（会议）或 `kind=deadline`（截止），`scope=personal`，提醒分钟数记在 `note` 的 `提醒:提前N分钟` 标记里（`readRemindMinutes()` 可读回）。当前只做「记下来 + 日历上可见」，**没有推送**——推送需要通知通道（Web Push / 企业微信应用消息 / 邮件），且要在用户设备上常驻调度，属于下一步。
+提取出来的事项默认写**本机文件** `data/meetings/meetings-<日期>.json`（format `szu-calendar-personal`），网页「我的」页导入后进浏览器 localStorage，日历上以 `meeting` / `deadline` 显示。提醒分钟数记在 `note` 的 `提醒:提前N分钟` 标记里（`readRemindMinutes()` 可读回）。
+
+**不默认写云库**：从自己的微信里排出来的事是用户级数据，进全校共享的 `events` 表就得靠身份标记 + 认领才隔离得开。确实要写（团队共用的演示数据）加 `--publish`，那时才需要学号做归属键。
+
+当前只做「记下来 + 日历上可见」，**没有推送**——推送需要通知通道（Web Push / 企业微信应用消息 / 邮件），且要在用户设备上常驻调度，属于下一步。
 
 ### 3.5 自动路径：WeFlow 导出 + 模型提取
 
@@ -196,17 +324,18 @@ weflow key db --save --timeout 600
 ```
 WeFlow 导出 JSON（本机）
   → 拼成「[MM-DD HH:mm] 发送者: 内容」逐行文本
+  → 时间预筛：正则只留「带时间表达」的消息（普通群 ~40%、商业群 ~18% 能过）
   → 按 5000 字切片，逐片交模型（提示词与前端共用 lib/meeting-prompt.mjs）
   → 归一化日期/时间、去重、只留今天及以后
-  → 认领到源消息 id，写 events（source=wechat, scope=personal）
+  → 认领到源消息 id → 写 data/meetings/meetings-<日期>.json（本机，默认不写库）
 ```
 
 **隐私边界**：
 
 - 原始聊天只落在 `data/wechat/`，**不上传**；`data/*` 已 gitignore；
-- 只有提取出来的「标题 + 时间 + 地点 + 一句原话」进云库；
+- 只有提取出来的「标题 + 时间 + 地点 + 一句原话」写进本机文件，再进浏览器 localStorage；
 - 送进模型的是消息正文，但**不发 wxid、不发头像、不发附件**；
-- `source_url` 里只有学号哈希和群名哈希，没有明文。
+- 只有显式 `--publish` 写云库时才会带归属键，那时 `source_url` 里是学号哈希和群名哈希，没有明文。
 
 **两个必须知道的设计决定**：
 
@@ -217,40 +346,196 @@ WeFlow 导出 JSON（本机）
 
 **已知波动**：模型是 `auto` 路由，同一次输入两次运行的召回可能差 1–2 条（有时把 11/20 的体测预约漏掉）。表现是「补上」而不是「重复」，配合上面的幂等键可以接受；要稳定可指定固定模型。
 
-## 四、采集器用法
+### 3.6 网页端导入微信（`lib/wechat-local.ts` + `lib/chat-extract.ts` + `components/WeChatImporter.tsx`）
 
-```bash
-# 0. 只跑一次：凭据存本地 data/.credentials.json（已 gitignore）
-npm run auth:save -- 482848 "密码"
+**2026-11-09 二次修正：默认通道改成本机一键扫描。**
 
-# 1. 公文通 → data/board/notices-YYYYMMDD.json
-npm run collect:board -- --login --pages 5
+上一版把「长按多选 → 复制 → 粘贴」当主路径，理由是「微信没有导出按钮」。这个理由只对了一半：
+微信确实不产出可读文件，但**用户电脑上的微信库可以被本机工具读**（§3.5 的 WeFlow 已经验证过）。
+让用户自己去翻聊天记录、挑消息、复制，是把整个产品里最麻烦的一步丢给用户 —— 不成立。
 
-# 2. 入库（scope=school，按 source_url 去重，直接走数据面 REST）
-npm run ingest:notices
+现在的三条通道，按优先级：
 
-# 3. 个人课表 → 云数据库（scope=personal，按 课程+周次+星期+节次 去重）
-npm run collect:timetable
+| 通道 | 什么时候用 | 用户要做什么 |
+|---|---|---|
+| **一键扫描**（默认） | 网页跑在本机（`localhost`） | 勾群 → 点一下 |
+| 粘贴 | 只导一两条；或网页部署在云端 | 复制一段 → 粘贴 |
+| 选文件 | 已经用第三方工具导出过 `.json` / `.txt` | 选文件 |
 
-# 4. 群聊 → 会议/截止（需要 WeFlow，见 §3.5）
-npm run meetings:list                 # 先看有哪些群、哪些像通知群（带分数）
-npm run collect:meetings -- --dry-run # 只看提取结果
-npm run collect:meetings              # 按 data/meeting-sources.json 正式跑
-npm run collect:meetings -- --groups "群名A,群名B" --days 3
-npm run collect:meetings -- --meetings-only   # 只要会议，不要截止
+#### 换一台陌生电脑怎么办（`components/WeChatSetup.tsx`）
 
-# 只想看看解析结果、不写库
-npm run collect:timetable -- --dry-run
-# 会话失效时的排障顺序：先复用缓存，再重登
-npm run collect:timetable -- --relogin
-# 周次锚点错了要整批重来（先删 source=ehall 再写）
-npm run collect:timetable -- --replace
-# 教务周次接口不可用时，用已知日期钉住第 1 周周一
-npm run collect:timetable -- --week1 2026-08-31
+这是最容易翻车的一环：WeFlow 可能装在任意目录，微信的存储位置也可能被改到别的盘。
+两个都不能靠猜，所以路径**不写死**，而是分两层找：
+
+| 要找的 | 查找顺序 |
+|---|---|
+| WeFlow | ① `data/.weflow-config.json` 用户确认过的路径 → ② `WEFLOW_EXE` → ③ 常见位置 → ④ 扫 C–H 盘 `Tools/tools/Program Files/软件/Apps` 下一层 |
+| 微信数据 | ① WeFlow 配置的 `db_path`（它已经在用的，最权威）→ ② 注册表 `HKCU\Software\Tencent\{WeChat,Weixin}` 的 `FileSavePath` → ③ 文档 / 盘符根默认位置 → ④ 各盘一级目录名带「微信 / wechat / weixin」的再看一层 |
+
+每个候选都要能读出 `wxid_*` 账号目录才算数，空壳目录不返回；`…\Backup` 一律排除
+（里面也有完整账号目录，指向它「能连上」但读到的是旧快照，比报错更难发现）。
+
+界面按「卡在第几步」分三屏，不用读文档：
+
+```
+stage=no-exe   没找到工具  → 给下载链接 + 解压位置，点「自动检测」，或手填 weflow.exe 路径
+stage=no-data  工具在，但不知道库在哪 → 列出扫到的目录，一键「用这个」，或手填目录；填错当场报错
+stage=no-key   目录对了，密钥过期 → 起后台任务等微信重登，前端每 5s 轮询，最长 10 分钟
+stage=ready    连上了 → 显示群列表
 ```
 
-调试用参数：`--save-raw` 存原始 HTML 到 `data/board/raw/`，`--from-html <file>` 离线验证解析，`--dry-run` 不落盘，
-`--file <xskcb 响应 json>` 离线跑课表解析。
+写路径前一定要**先验证再落库**：`POST /api/wechat/config {wechatDir}` 会用
+`weflow db scan <dir>` 扫一遍，有账号才 `weflow config set db_path`（顺带 `set wxid`）。
+直接把用户填的路径塞进配置，后面只报「打不开」，用户根本分不清是路径错了还是密钥过期。
+
+只读 `config get db_path`；**绝不调 `config list`** —— 那个输出里有 `decrypt_key` 明文。
+
+| 接口 | 作用 |
+|---|---|
+| `GET /api/wechat/status` | 找 exe、找库、`db test`、版本号；缓存 20s，避免每次输入都 spawn |
+| `GET /api/wechat/config` | 扫出 exe 候选 + 微信目录候选 |
+| `POST /api/wechat/config` | 保存 exe 路径；或验证并写入微信目录 |
+| `POST /api/wechat/key` | 后台起 `key db --save --timeout 600`，输出含密钥 → `stdio: ignore`，一个字都不返回 |
+
+#### 一键扫描链路
+
+```
+浏览器 ──POST /api/wechat/scan──► Next.js route（跑在用户电脑上）
+                                     ├─ WeFlow 导出选中群的 JSON 到 %TEMP%
+                                     ├─ 读文件 → chat-extract 规则抽取
+                                     └─ 删临时目录 → 只返回事项
+浏览器 ◄── { items, stats } ────────┘ → mergePersonal() 写 localStorage
+```
+
+| 环节 | 做法 | 说明 |
+|---|---|---|
+| 探测 | `GET /api/wechat/status` | 找 exe、`db test`、版本号；结果缓存 20s，避免每次输入都 spawn |
+| 选群 | `GET /api/wechat/groups` | 227 个群按「像不像通知群」打分排序，默认勾选 score ≥ 3 的前 6 个 |
+| 扫描 | `POST /api/wechat/scan` | 一次最多 12 个群、30 天；单群失败不影响其他群 |
+| 抽取 | `extractFromChats()` | 纯规则，**不调模型** |
+| 清理 | `finally` 里 `rmSync` | 原始聊天不留盘；Windows 删不掉时也不影响结果 |
+
+**为什么「服务端」也安全**：网页跑在 `localhost`，这个 route 就在用户自己电脑上执行，
+不走网络。返回给前端的只有事项（标题/时间/地点/一句原话），没有 wxid、头像、成员、原始消息列表。
+部署到云端时 `available:false`，前端自动收起自动通道 —— 不做「假装能用」的降级。
+
+#### 手机上的记录怎么进来
+
+手机微信不产出可读文件，但能把记录**搬到电脑上**：
+「我 → 设置 → 通用 → 聊天记录迁移与备份 → 迁移到电脑」。迁完之后电脑微信里就有了，
+WeFlow 直接能读，用户不需要再做别的。界面上这句话写在「已连上」状态条下面。
+
+#### 实测（2026-11-09，本机 227 群 / 微信 4.0）
+
+| 场景 | 结果 |
+|---|---|
+| `/api/wechat/status` | `available:true, connected:true, 5.0.1` |
+| `/api/wechat/groups` | 227 个群，2s 内返回 |
+| 扫描 2 个群（7 天） | 2.4s，84 条消息 |
+| 家教群 1476 条 | **0 条事项**（表单广告全被过滤） |
+| 腾班通知群 14 条 | 6 条事项：5 个截止 + 1 个会议 |
+| 扫描后临时目录 | 已清空 |
+
+#### 本轮修的四个真实缺陷
+
+1. **WeFlow 的 `type` 是中文**（`"文本消息"` / `"引用消息"`），旧代码只认 `1` / `"text"`，
+   把真实导出文件喂进去会得到 0 条。之前从没拿真实文件测过 —— 这是最贵的那个 bug。
+2. **引用消息的引用块污染判定**。引用块里有「交流会」「活动」，会把「简历 11 月 6 日截止」
+   判成会议。现在先在 `fromWeFlowJson` 里剥掉 `[引用 …]`。
+3. **分类要「截止优先」**。凡是出现「截止 / 截至 / 前提交 / X 日前」，主体基本都是截止；
+   旧逻辑按「有没有出现会议词」判，实测全判反。
+4. **家教/中介的表单广告**（`订单 xx【地址】xx【学科】xx`）。每条都带地址和数字，
+   规则没法用时间表达排除，但它们不是日程。判据：方括号标签 ≥ 3，或「地址 + 科目/年级」同时出现。
+
+#### 备用通道：粘贴
+
+`lib/wechat-paste.ts` 把各端复制格式归一成 `[YYYY-MM-DD HH:mm] 昵称: 内容`：
+
+| 格式 | 样子 |
+|---|---|
+| A 电脑微信多选复制 | `张三  2026-11-09 10:23` + 下一行正文 |
+| B 带日期分隔行 | `————— 2026年11月9日 —————`，下面 `张三 10:23` |
+| C 昵称冒号式 | `辅导员：明天下午三点开会` |
+| D 裸一段通知 | 直接粘一句话，无昵称无时间戳 |
+| E 无年份带时间 | `班群 11-20 14:30` |
+
+| 环节 | 做法 |
+|---|---|
+| 同意 | 复选框，未勾选时所有按钮 disabled。文案明说「内容不上传、临时文件立即删除」 |
+| 输入 | 扫描（主）/ 文本框粘贴 / `showDirectoryPicker()` / `<input webkitdirectory>` / 多选文件 |
+| 抽取 | 纯正则 + 日期算术，**不调模型**（调模型就等于把正文发出去） |
+| 落库 | `mergePersonal()` 按「日期+类型+标题」去重后写 `localStorage` |
+
+规则层的能力边界（8 条模拟群聊 + 5 种粘贴格式实测，全部命中）：
+
+| 支持 | 例子 |
+|---|---|
+| 相对日 | 今天 / 明天 / 后天 / 今晚 / 明早 |
+| 周几 | 本周四 / 下周一 / 周四前 |
+| 月日、年月日 | 11月20日前 / 2026年12月3日 |
+| 钟点 | 14:30 / 下午三点 / 晚上七点半 / **下午两点**（「两」曾漏） |
+| 时间段 | 14:30-16:00 → 补 `endAt` |
+| 类型判定 | 含「截止/日前/前交」→ 截止；含「会议/讲座/答辩/体测…」→ 会议 |
+| 地点 | 「地点：致理楼201」「在图书馆报告厅」 |
+| 多句消息 | 「收到。另外四六级报名 11月20日前截止」→ 取有信息量的那句当标题 |
+
+**排不出来的**：一句话里塞了三件事、纯图片通知、跨消息才拼得出的时间（「时间同上」）。
+这些在命令行 + 模型那条路能补，网页这条路会漏 —— 所以导入结果允许用户自己删，而不是假装全对。
+
+两个必须注意的顺序问题：
+
+1. **「月日」要排在「周几」前面解析**。正文常写「12月3日（周四）」，先匹配周几会算成本周四，日期整体偏两个月。实测出现过。
+2. **标题不能只看第一句**。群聊里「收到。」开头极常见，只看首句会把整条当噪声丢掉（`11月20日前截止` 就这样被吞过）。现在改为「挑第一句含时间/动作线索的」。
+
+## 四、采集器用法
+
+**凭据**：统一身份认证密码只在「建会话」时用一次，**不写磁盘**。可以交互式输入，也可以用环境变量传入（推荐，写在命令那一行里，进程结束就没了）：
+
+```bash
+SZU_USER=2024xxxxxx SZU_PASS='***' npm run collect:profile
+```
+
+会话（cookie）会缓存到 `data/.ehall-session.json`、`data/.jwkw-session.json`，30 天内复用；失效才需要密码。统一认证对短时间重复登录返回 401，因此**不要**随手加 `--relogin`。
+
+```bash
+# 1. 档案：姓名 / 学号 / 学院 / 专业 / 年级 → data/profile.json
+#    学院、专业由系统从 ehall + jwkw 取，不需要用户手填
+npm run collect:profile
+
+# 2. 公文通 → data/board/notices-YYYYMMDD.json，再入库（scope=school，按 source_url 去重）
+npm run collect:board -- --login --pages 5
+npm run ingest:notices
+
+# 2b. 官网（免登录）→ data/web/notices-web-YYYYMMDD.json，再入库（source=web）
+npm run collect:web                       # 默认 3 个频道 × 2 页
+npm run collect:web -- --pages 5 --channels tzgg,xsdt
+npm run ingest:notices -- --source web    # 自动读 data/web/notices-web-latest.json
+
+# 两个源可以一天跑一次，采集是增量的（seen.json 记住已抓过的 id）。
+# notices-latest.json 是累积快照，不是本次增量 —— 详见「踩过的坑」。
+
+# 3. 课表 → data/timetable/timetable-<学期>.json（本机文件，默认不写云库）
+#    跑完到网页「我的」→ 导入文件，存进浏览器 localStorage
+npm run collect:timetable
+npm run collect:all                   # profile + timetable 一次跑完
+
+# 4. 群聊 → 会议/截止（需要 WeFlow，见 §3.5）
+npm run meetings:list                 # 先看有哪些群（分数只作「像不像通知群」的参考）
+npm run meetings:all                  # 扫全部 227 个群 → data/meetings/meetings-<日期>.json
+npm run collect:meetings -- --groups "群名A,群名B" --days 3
+npm run collect:meetings -- --meetings-only   # 只要会议，不要截止
+npm run collect:meetings -- --no-filter       # 关掉时间预筛（全量送模型，慢且贵）
+npm run meetings:publish              # 确实要写云库时才用（需要学号做归属标记）
+
+# 课表排障
+npm run collect:timetable -- --dry-run      # 只看解析结果
+npm run collect:timetable -- --week1 2026-08-31   # 教务周次接口不可用时钉住第 1 周周一
+npm run collect:timetable -- --file <xskcb响应.json>   # 离线跑解析
+```
+
+**两份产出都只落本机**：`data/timetable/*.json`（课表，带姓名/学院/专业）和 `data/meetings/meetings-*.json`（群聊排出的事）。前者 format 是 `szu-calendar-timetable`，后者是 `szu-calendar-personal`，网页端一个「导入文件」按钮两种都认，分别存进 `localStorage` 的两个键。重复导入会按「日期+类型+标题」合并，不会越导越多。
+
+调试用参数：`--save-raw` 存原始 HTML 到 `data/board/raw/`，`--from-html <file>` 离线验证解析，`--dry-run` 不落盘。
 
 抓 SPA 的 XHR（定位新接口时用）：`node scripts/ehall-cdp.mjs --url "<页面>" --service "<CAS service>"`，
 走本机 Chrome + CDP，不装 playwright；结果在 `data/tmp/cdp-requests.log`。
@@ -266,18 +551,54 @@ node scripts/test-meetings.mjs --image data/tmp/chat-shot.png   # 截图
 
 - [x] 公文通列表页 / 详情页解析（已用真实 HTML 校准，518 条全栏目可采）
 - [x] eHall 应用枚举（登录后）→ 课表 appId `4770397878132218`
-- [x] 课表接口打通并入库（7 门课 / 207 次上课事件）
-- [x] 周次锚点改用教务 jwkw 口径（`2026-08-31` = 第 1 周），已按 `--replace` 整批重算
+- [x] 课表接口打通（7 门课 / 207 次上课事件）
+- [x] 周次锚点改用教务 jwkw 口径（`2026-08-31` = 第 1 周）
 - [ ] 考试安排：jwkw `/student/exams.do` 已通，本学期尚无排考数据，等期末验证字段
 - [x] ~~成绩~~：**不做**。appId `4768574631264620`（本科）已定位，但与日历无关，见 §1.1
-- [x] 个人课表归属：学号哈希 + 「我的」页认领，`scope=personal` 只显示本人（2026-11-08）
+- [x] 个人课表归属：**不再进云库**。改为本机文件 + 浏览器导入，无认领、无抢占（2026-11-08 重构）
+- [x] 档案自动匹配：`collect:profile` 从 ehall/jwkw 取学院专业年级，随课表文件带入画像（2026-11-08）
+- [x] 凭证处理：密码不落盘，旧 `.credentials.json` 读到即删（2026-11-08）
 - [x] 群聊 → 会议：复制文字 / 截图两条路都通，提示词已按实测调过（2026-11-08）
-- [x] 群聊自动采集：WeFlow 导出 → 模型提取 → 入库，本机跑通并收敛（2026-11-08，见 §3.5）
+- [x] 群聊全量扫描：`--all-groups` 扫全部群 + 时间预筛，默认只写本机文件（2026-11-08）
+- [x] 群聊自动采集：WeFlow 导出 → 模型提取 → 本机文件，本机跑通并收敛（2026-11-08，见 §3.5）
 - [x] 截止时间：`kind=deadline` 已接入（通知群里这类才是大头）
+- [x] 公文通截止抽取：`lib/deadline.mjs` 从正文抽「报名/提交截止」，一条通知可双行入库（活动行 + 截止行），
+      实测 518 条通知 → 31 条截止行（未过期 22 条）；教师申报/结项、公示、试用到期已过滤（2026-11-08）
+- [x] 「截止日期」统一视图：`lib/deadlines.ts` 合并 ddls 表 + 公文通 kind=deadline + 本机群聊，
+      按「日期+标题」去重（公文通优先），`components/DdlPanel.tsx` 展示并按来源筛选（2026-11-08）
+- [x] 网页登录改用统一认证：学号 + 密码 → 本机服务端换 ticket → 签 cookie，登录同时带回课表与档案（2026-11-08，见 §1.2）
+- [x] 登录降级为可选功能：不再拦首屏，未登录照样用日历 / 截止 / 导入，登录入口收进「我的」（2026-11-08）
+- [x] 官网采集：`scripts/collect-web.mjs` 抓通知公告 / 学术动态 / 深大新闻，免登录；
+      实测 3 频道 × 2 页 = 40 条带日期条目，入库 45 行（`source=web`）（2026-11-09，见 §2.5）
+- [x] 采集器共用入库口：`ingest-notices.mjs --source board|web`，两源字段同构（2026-11-09）
+- [x] 网页端本地导入微信：同意门 + 目录选择 + 浏览器内规则抽取 + 写 localStorage（2026-11-09，见 §3.6）
+- [x] 微信导入改「复制粘贴」优先 + 界面内写清操作步骤，并明说微信文件夹里的 .db 不可读（2026-11-09，见 §3.6）
+- [x] 作业截止（`ddls`）与签到（`checkins`）搬进本机 `localStorage`，云库对应表停用（2026-11-09，见 §1.3）
+- [ ] 网页登录的端到端实测：代码与构建已通过，真实账密下的 CAS 登录尚未由本人跑过一次（`casLogin` 的登录页解析已单独验证）
+- [x] 微信导入主路径改为本机一键扫描：探测 → 选群 → WeFlow 导出 → 规则抽取 → 本机；粘贴降为备用（2026-11-09，见 §3.6）
+- [x] 陌生电脑引导：工具/微信目录自动查找 + 三步向导（装工具 / 认目录 / 等密钥），路径可手填且写入前先验证（2026-11-09，见 §3.6）
+- [x] 畅课作业：服务端三跳登录 + `GET /api/todos` → 写本机 `localStorage`，`components/LmsSync.tsx` 提供登录与一键同步（2026-11-09，见 §2.2）
+- [ ] 畅课全链路实测：登录链、密码加密、错误提示已验证到「认证服务器判密码」这一步；
+      用真实账密跑通「登录 → `/api/todos` 返回作业 → 写进 DDL 列表」还差一次本人验证
 - [ ] 企业微信：没有等价的导出工具，官方 API 不给历史聊天；只能靠复制/截图
 - [ ] 群图片里的时间安排：`--media image` 已能把图片解密出来，但还不能自动判断哪张图是时间表，需要先按上下文筛图再交视觉模型
 - [ ] 采集调度：现在要手动跑，应该挂成每天定时（配合「只采上次之后的新消息」）
+- [ ] 公共数据的「新鲜度」没有展示：库里 `source_url` 能查到，但页面没说「这批数据是几号采的」。
+      未登录用户看到旧通知时无从判断，应该在公共列表加一个 `updatedAt`
 - [ ] 会议提醒推送：当前只记录提醒分钟数，没有发通知的通道；需要 Web Push 或企业微信应用消息
 - [ ] 会议精神：截图 OCR 仍有偶发形近字错误，考虑对地点做「字库白名单」校验（致理楼/文科楼等）
 - [ ] 课表事件当前 `kind=other`，等前端确定要不要加 `class` 类型再改
 - [ ] 创新领航讲座：公文通「讲座」栏目已能采到，是否另有独立报名入口待确认
+
+## 六、踩过的坑（按时间倒序）
+
+| 现象 | 原因 | 修法 |
+|---|---|---|
+| 群聊里「收到。另外四六级报名 11月20日前截止」整条被丢 | `cleanTitle` 只取第一句，得到「收到」（2 字）后按「标题太短」丢弃 | 按句切分，挑第一句含时间/动作线索的当标题（2026-11-09） |
+| 「下午两点开班会」只排到日期，时间变 00:00 | `resolveTime` 的中文字符类 `[一二三四五六七八九十]` 漏了「两」 | 字符类加「两」，映射为 2（2026-11-09） |
+| 微信「昵称：内容」粘贴后标题带「辅导员: 」前缀 | 该格式没有时间戳，走不到带时间戳的分支，整行被当正文 | `fromText` 增加「昵称：内容」分支，用文件时间兜底（2026-11-09） |
+| `nick 11-20 14:30` 这种无年份消息头认不出 | 消息头正则只收完整年份或纯时间 | 增加 `M-D HH:mm` 分支，年份锚在分隔行/当前年（2026-11-09） |
+| `npm run collect:board -- --list-only` 之后，截止时间少了一大半 | list-only 把 1.5MB 的 `notices-latest.json`（带正文）覆盖成 150KB 的纯列表，而 ingest 默认读 latest | list-only 改写到 `notices-list-<日期>.json`；latest 改成**累积合并**（按 id 归并），不再是「本次增量」 |
+| 官网列表「抓不到」 | 误判为 JS 渲染。实际是静态 HTML + GBK 字节顶着 UTF-8 声明 | 先 gb18030 解，替换字符多再回落 UTF-8；用「有没有发布日期」区分正文条目与导航菜单 |
+| 聊天记录里「12月3日（周四）」被排到本月底 | 先匹配「周四」再匹配月日，日期整体偏两个月 | `resolveDate` 顺序改为 年月日 → 月日 → 相对日 → 周几 |
+| 「请于11月20日前将材料发送」抽不出截止 | 截止正则只收固定词组（前提交/前上交），中间夹宾语就匹配不到 | 加 `\d{1,2}[日号]\s*前`、`周X前` 两条结构式规则 |

@@ -6,10 +6,17 @@ import {
   createEvent,
   deleteEvent,
   getProfile,
-  listCheckins,
-  listDdls,
   listEvents,
 } from "@/lib/data";
+import {
+  addMyEvent,
+  loadCheckins,
+  loadDdls,
+  loadMyEvents,
+  loadPersonal,
+  loadTimetable,
+  removeMyEvent,
+} from "@/lib/local-store";
 
 type ItemKind = EventKind | "ddl" | "checkin";
 
@@ -115,14 +122,66 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
   });
 
   const refresh = useCallback(async () => {
+    let cloudFailed = false;
     try {
-      const [events, ddls, checkins, p] = await Promise.all([
-        listEvents(),
-        listDdls(),
-        listCheckins(),
-        getProfile().catch(() => null),
-      ]);
+      // 云库只剩公共事件；作业、签到、课表、自建事件全在本机，直接同步读。
+      // 云端失败不该让本机那几份也看不见，所以分开处理。
+      const events = await listEvents().catch(() => {
+        cloudFailed = true;
+        return [] as CalEvent[];
+      });
+      const ddls = loadDdls();
+      const checkins = loadCheckins();
+      const p = await getProfile().catch(() => null);
       setProfile(p);
+
+      // 课表来自本机导入，不在 events 表里。它天然属于「当前这个人」——
+      // 谁的浏览器里有这个文件，就是谁的课表，不需要任何归属标记或认领。
+      const tt = loadTimetable();
+      const timetableItems: CalItem[] = (tt?.events || []).map((e, i) => ({
+        id: `tt-${tt?.term || "x"}-${i}`,
+        kind: "other" as ItemKind,
+        title: e.title,
+        at: new Date(e.startAt),
+        endAt: e.endAt ? new Date(e.endAt) : undefined,
+        allDay: Boolean(e.allDay),
+        detail: [e.location, e.teacher].filter(Boolean).join(" · "),
+        deletable: false,
+        scope: "personal",
+        own: true,
+      }));
+
+      // 群聊里排出来的会议/截止也走本机文件（personal-*.json → localStorage），
+      // 不上云的原因和课表一样：谁导入的算谁的。
+      const pt = loadPersonal();
+      const personalItems: CalItem[] = (pt?.events || []).map((e, i) => ({
+        id: `pp-${i}-${e.startAt}`,
+        kind: (e.kind === "deadline" ? "deadline" : "meeting") as ItemKind,
+        title: e.title,
+        at: new Date(e.startAt),
+        endAt: e.endAt ? new Date(e.endAt) : undefined,
+        allDay: Boolean(e.allDay),
+        detail: e.note || e.location || "",
+        deletable: false,
+        scope: "personal",
+        own: true,
+      }));
+
+      // 手动新建的「仅自己」事件：同样只在本机（见 local-store.ts 的 MyEvent 注释）
+      const myItems: CalItem[] = loadMyEvents().map((e) => ({
+        id: `my-${e.id}`,
+        kind: (e.kind || "other") as ItemKind,
+        title: e.title,
+        at: new Date(e.startAt),
+        endAt: e.endAt ? new Date(e.endAt) : undefined,
+        link: e.link,
+        allDay: Boolean(e.allDay),
+        detail: [e.course, e.location, e.note].filter(Boolean).join(" · "),
+        deletable: true,
+        scope: "personal",
+        own: true,
+      }));
+
       const merged: CalItem[] = [
         ...events.map((e: CalEvent) => ({
           id: e.id,
@@ -135,8 +194,8 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
           detail: [e.course, e.location, e.note].filter(Boolean).join(" · "),
           deletable: e.scope === "personal" || e.ownerId === currentUserId,
           scope: e.scope,
-          // 采集器写入的行 ownerId 是 "anon"，与登录用户不匹配 → 不展示。
-          // 这就是「只有本人授权后自己的课表才出现」的落点。
+          // 云库里残留的 personal 行（旧版课表）ownerId 是 "anon"，与登录用户对不上，
+          // 一律不展示。课表本身已经改走本机文件，这里只是兜住历史数据。
           own: Boolean(currentUserId) && e.ownerId === currentUserId,
           college: e.college,
           grade: e.grade,
@@ -163,9 +222,12 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
           scope: "personal",
           own: true,
         })),
+        ...personalItems,
+        ...myItems,
+        ...timetableItems,
       ];
       setItems(merged);
-      setErrorMsg("");
+      setErrorMsg(cloudFailed ? "公共事件加载失败，本机数据不受影响" : "");
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : "数据加载失败");
     }
@@ -261,7 +323,7 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
       ? `${form.date}T00:00:00`
       : `${form.date}T${form.time || "09:00"}:00`;
     try {
-      await createEvent({
+      const payload = {
         kind: form.kind,
         title: form.title,
         startAt: new Date(startAt).toISOString(),
@@ -276,7 +338,23 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
         scope: form.scope,
         college: form.scope === "college" ? form.college : undefined,
         grade: form.scope === "grade" ? form.grade : undefined,
-      });
+      };
+      // 仅自己 → 本机；全校/学院/年级 → 云库（那本来就是发给大家看的）
+      if (form.scope === "personal") {
+        addMyEvent({
+          kind: payload.kind,
+          title: payload.title.trim(),
+          startAt: payload.startAt,
+          endAt: payload.endAt,
+          link: payload.link,
+          allDay: payload.allDay,
+          course: payload.course,
+          location: payload.location,
+          note: payload.note,
+        });
+      } else {
+        await createEvent(payload);
+      }
       setForm({ ...form, title: "", course: "", location: "", note: "", scope: "personal" });
       setShowForm(false);
       setSelected(form.date);
@@ -289,6 +367,12 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
 
   async function remove(id: string) {
     try {
+      // my- 前缀是本机自建事件，删本地；其余仍走云库（学院/年级等公共事件）
+      if (id.startsWith("my-")) {
+        removeMyEvent(id.slice(3));
+        setItems((prev) => prev.filter((i) => i.id !== id));
+        return;
+      }
       await deleteEvent(id);
       setItems((prev) => prev.filter((i) => i.id !== id));
     } catch (e) {
@@ -296,11 +380,11 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
     }
   }
 
-  /** 采集器抓下来的个人课表（owner 仍是 anon）——提示去「我的」页认领 */
-  const unclaimedCount = useMemo(
-    () => items.filter((i) => i.scope === "personal" && !i.own).length,
-    [items]
-  );
+  /** 本机还没导入任何个人数据时提示一次（课表/待办都不再进云库，所以没有「待认领」这回事） */
+  const hasLocalData = useMemo(() => {
+    if (typeof window === "undefined") return true;
+    return Boolean(loadTimetable() || loadPersonal());
+  }, [items]);
 
   return (
     <div>
@@ -364,10 +448,10 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
         </p>
       )}
 
-      {unclaimedCount > 0 && (
-        <p className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
-          有 {unclaimedCount} 条个人课表还没认领 —— 个人数据默认不对他人展示。到「我的」Tab 填学号认领后，
-          它们才会出现在这里。
+      {!hasLocalData && (
+        <p className="mb-3 rounded-lg bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
+          还没导入个人数据。课表和群聊待办只存在你自己的浏览器里，不上传云端 —— 到「我的」Tab
+          导入脚本生成的 timetable-*.json / meetings-*.json 后，上课和开会时间就会出现在这张月历上。
         </p>
       )}
 

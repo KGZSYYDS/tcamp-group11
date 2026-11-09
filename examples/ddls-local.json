@@ -1,0 +1,23 @@
+[
+  {
+    "id": "lz8k2q1x",
+    "course": "计算机视觉",
+    "title": "实验4：目标检测模型的设计和实现",
+    "dueAt": "2026-11-29T15:59:00.000Z",
+    "url": "https://lms.szu.edu.cn/course/31837/learning-activity#/material/261176",
+    "note": "畅课作业",
+    "status": "pending",
+    "source": "lms-sync",
+    "createdAt": "2026-11-09T09:12:03.441Z"
+  },
+  {
+    "id": "lz8k2r7m",
+    "course": "通识课-艺术鉴赏",
+    "title": "期末论文提纲",
+    "dueAt": "2026-11-10T15:59:00.000Z",
+    "note": "老师说 800 字以上",
+    "status": "done",
+    "source": "manual",
+    "createdAt": "2026-11-02T03:20:11.002Z"
+  }
+]

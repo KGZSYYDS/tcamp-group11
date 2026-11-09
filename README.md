@@ -45,20 +45,23 @@ start.bat|sh    一键启动（缺依赖时自动 npm install）
 
 ## 数据采集
 
-两个采集器都走统一身份认证（CAS）。账号密码只存本地 `data/.credentials.json`（已被 gitignore），不进仓库：
+采集器走统一身份认证（CAS）。**密码不落盘**：只在建会话那一次用，之后复用 Cookie 缓存；密码可交互输入或用环境变量传入。
 
 ```bash
-npm run auth:save -- 482848 "你的密码"   # 只跑一次
+SZU_USER=学号 SZU_PASS='密码' npm run collect:profile   # 姓名/学院/专业/年级 → data/profile.json
 npm run collect:board                    # 公文通 → data/board/*.json
 npm run ingest:notices                   # 上一步结果 → 云数据库（scope=school，按 URL 去重）
-npm run collect:timetable                # 办事大厅「我的课表」→ 云数据库（scope=personal）
+npm run collect:timetable                # 办事大厅「我的课表」→ data/timetable/*.json（本机文件）
+npm run meetings:all                     # 微信全量群 → data/meetings/*.json（本机文件）
 ```
 
 - 公文通全站要登录，没有公开 API；采集器登录一次拿 Cookie，之后按栏目翻页。
-- 课表按「课程 + 周次 + 星期 + 节次」展开成单次上课事件，重复跑只补新增；
+- 课表按「课程 + 周次 + 星期 + 节次」展开成单次上课事件；
   周次锚点取自教务系统（`jwkw` 的 `classWeek.do`），节次时间表在 `scripts/collect-timetable.mjs` 顶部。
-- 课表是个人数据：采完要去网页「我的」页填一次学号认领，课表才会归属到你账号并只对你可见
-  （库里存的是学号哈希，明文不落库）。不收成绩、不收全校课表，理由见 `docs/data-access.md` §1.1。
+- **课表和群聊待办不进云库**：它们写成 `data/` 下的本机 JSON，到网页「我的」页导入，存进浏览器 localStorage。
+  谁的浏览器里有这个文件，就是谁的数据 —— 不需要学号哈希、不需要认领，也就没有抢占问题。
+  文件里带着姓名/学院/专业/年级，导入时自动填进画像，不用手打。
+- 微信采集先用正则筛「带时间表达」的消息，再交模型归一化；默认扫全部群（227 个），不靠群名白名单猜。
 - 各系统能拿到什么、需要用户给到什么权限，见 [`docs/data-access.md`](docs/data-access.md)。
 
 ## 协作约定

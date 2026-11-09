@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://szu-calendar.local/schema/timetable-file.json",
+  "title": "课表文件 · szu-calendar-timetable",
+  "description": "采集器产出、网页「我的 → 导入文件」消费。文件名约定 timetable-<学期>.json。",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["format", "version", "term", "week1Monday", "events"],
+  "properties": {
+    "format": { "const": "szu-calendar-timetable" },
+    "version": { "type": "integer", "const": 1 },
+    "term": { "type": "string", "description": "学期代码，如 2026-2027-1" },
+    "termName": { "type": "string", "description": "如 2026-2027学年第一学期" },
+    "week1Monday": {
+      "$ref": "https://szu-calendar.local/schema/common.json#/$defs/dateOnly",
+      "description": "第 1 周周一的日期。整张课表的时间都靠它推算，必须是教学周口径。"
+    },
+    "currentWeek": { "type": ["integer", "null"], "minimum": 1 },
+    "courses": { "type": "array", "items": { "type": "string" } },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "courses": { "type": "integer", "minimum": 0 },
+        "sessions": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "generatedAt": { "$ref": "https://szu-calendar.local/schema/common.json#/$defs/dateTime" },
+    "profile": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "name": { "type": "string" },
+        "studentId": { "type": "string" },
+        "college": { "type": "string" },
+        "major": { "type": "string" },
+        "className": { "type": "string" },
+        "grade": { "type": "string" },
+        "level": {
+          "type": "string",
+          "enum": ["undergraduate", "postgraduate", "doctoral", ""]
+        },
+        "levelName": { "type": "string" },
+        "sex": { "type": "string" }
+      }
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "title", "startAt"],
+        "properties": {
+          "kind": { "type": "string", "enum": ["other", "activity", "exam"] },
+          "title": { "type": "string", "minLength": 1 },
+          "startAt": { "$ref": "https://szu-calendar.local/schema/common.json#/$defs/dateTime" },
+          "endAt": { "$ref": "https://szu-calendar.local/schema/common.json#/$defs/dateTime" },
+          "allDay": { "type": "boolean" },
+          "course": { "type": "string" },
+          "location": { "type": ["string", "null"] },
+          "teacher": { "type": ["string", "null"] },
+          "week": { "type": "integer", "minimum": 1, "description": "第几周，1 起" },
+          "periods": { "type": "string", "description": "节次范围，如 1-2" },
+          "jxbid": { "type": ["string", "null"], "description": "教务的教学班 ID，用于跨学期对齐同一门课" }
+        }
+      }
+    }
+  }
+}

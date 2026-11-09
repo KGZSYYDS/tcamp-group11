@@ -239,10 +239,12 @@ async function ensureSession() {
 
   if (NO_LOGIN) throw new Error("Cookie 已失效，且指定了 --no-login");
 
-  const cred = loadCredentials();
+  // loadCredentials 改成了异步（密码不落盘，可能要交互式读一次），
+  // 这里原先的同步调用会拿到 Promise 导致登录用到 undefined。
+  const cred = await loadCredentials();
   if (!cred) {
     throw new Error(
-      "没有可用凭据。先运行：node scripts/save-credentials.mjs --user <账号> --pass <密码>"
+      "没有可用凭据。用环境变量传入：SZU_USER=<学号> SZU_PASS=<密码> node scripts/collect-board.mjs"
     );
   }
 
@@ -329,12 +331,55 @@ async function main() {
   const out = LIST_ONLY ? list : details.length > 0 ? details : list;
   const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
   fs.mkdirSync(OUT_DIR, { recursive: true });
-  fs.writeFileSync(path.join(OUT_DIR, `notices-${stamp}.json`), JSON.stringify(out, null, 2), "utf-8");
-  fs.writeFileSync(path.join(OUT_DIR, "notices-latest.json"), JSON.stringify(out, null, 2), "utf-8");
-  if (!LIST_ONLY) fs.writeFileSync(seenFile, JSON.stringify(Array.from(seen)), "utf-8");
 
-  const withContent = out.filter((x) => x.content).length;
-  console.log(`\n完成：${out.length} 条，其中带正文 ${withContent} 条`);
+  /**
+   * --list-only 单独命名，且**不动** notices-latest.json。
+   *
+   * 原因：latest 是下游 ingest 的默认输入，它要的是「带正文」的那份。
+   * 一次 list-only 跑完就把 1.5MB 的正文版覆盖成 150KB 的纯列表，
+   * 截止时间就全抽不出来了 —— 这个坑踩过一次。
+   */
+  if (LIST_ONLY) {
+    fs.writeFileSync(path.join(OUT_DIR, `notices-list-${stamp}.json`), JSON.stringify(out, null, 2), "utf-8");
+    console.log(`\n完成（只抓列表）：${out.length} 条`);
+    console.log(`输出：${path.join(OUT_DIR, `notices-list-${stamp}.json`)}`);
+    return;
+  }
+
+  fs.writeFileSync(path.join(OUT_DIR, `notices-${stamp}.json`), JSON.stringify(out, null, 2), "utf-8");
+
+  /**
+   * notices-latest.json 是「累积快照」，不是「本次增量」。
+   *
+   * 下游 ingest 靠 latest 抽截止，而采集是增量的（seen.json 记住已抓过的 id）。
+   * 如果 latest 只写本次新抓的几条，昨天那 500 条带正文的就在默认输入里消失了，
+   * 表现为「今天再跑一次，截止时间少了一半」。
+   */
+  const latestFile = path.join(OUT_DIR, "notices-latest.json");
+  let merged = out;
+  if (fs.existsSync(latestFile)) {
+    try {
+      const prev = JSON.parse(fs.readFileSync(latestFile, "utf-8"));
+      if (Array.isArray(prev)) {
+        const map = new Map(prev.map((x) => [String(x.id), x]));
+        for (const it of out) map.set(String(it.id), it); // 新的覆盖旧的
+        // 先按发布日期，再按 id 倒序：同一天内新发的排前面
+        merged = Array.from(map.values()).sort(
+          (a, b) =>
+            (b.publishedAt || "").localeCompare(a.publishedAt || "") ||
+            String(b.id).localeCompare(String(a.id))
+        );
+      }
+    } catch {
+      /* 旧文件坏了就以本次为准 */
+    }
+  }
+
+  fs.writeFileSync(latestFile, JSON.stringify(merged, null, 2), "utf-8");
+  fs.writeFileSync(seenFile, JSON.stringify(Array.from(seen)), "utf-8");
+
+  const withContent = merged.filter((x) => x.content).length;
+  console.log(`\n本次 ${out.length} 条（新抓详情 ${details.length}），累积 ${merged.length} 条，带正文 ${withContent} 条`);
   console.log(`输出：${path.join(OUT_DIR, `notices-${stamp}.json`)}`);
 }
 

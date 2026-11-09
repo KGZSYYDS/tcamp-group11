@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://szu-calendar.local/schema/ddl.json",
+  "title": "Ddl · 作业/报名截止（本机实体）",
+  "description": "只存在于浏览器 localStorage。字段与 /api/lms/ddls、/api/import 的 items 完全一致。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["course", "title", "dueAt", "status", "source"],
+  "properties": {
+    "id": { "type": "string", "description": "本机生成：d_<时间戳36>_<随机6>。写入时不要带。" },
+    "course": { "type": "string", "minLength": 1, "description": "课程名或来源名，等同界面上的左侧标签" },
+    "title": { "type": "string", "minLength": 1 },
+    "dueAt": { "$ref": "https://szu-calendar.local/schema/common.json#/$defs/dateTime" },
+    "url": { "$ref": "https://szu-calendar.local/schema/common.json#/$defs/url" },
+    "note": { "type": "string" },
+    "status": { "type": "string", "enum": ["pending", "done"] },
+    "source": {
+      "type": "string",
+      "minLength": 1,
+      "description": "已知值：manual 手动 / lms-sync 畅课 / paste-import 粘贴 / 采集器自定义标识。开放集合，但界面只认 manual 与 lms-sync 两种配色。"
+    },
+    "createdAt": { "$ref": "https://szu-calendar.local/schema/common.json#/$defs/dateTime" }
+  }
+}

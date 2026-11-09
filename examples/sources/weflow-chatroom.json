@@ -1,0 +1,44 @@
+{
+  "weflow": {
+    "version": "5.0.1",
+    "exportedAt": "2026-11-08T12:13:16.018Z"
+  },
+  "session": {
+    "wxid": "wxid_xxxxxxxxxxxx_8682",
+    "displayName": "深大计科26级腾班-通知群",
+    "chatroomId": "49160223088@chatroom",
+    "type": "chatroom"
+  },
+  "messages": [
+    {
+      "localId": 1,
+      "createTime": 1793962648,
+      "formattedTime": "2026-11-06 18:57:28",
+      "type": "文本消息",
+      "localType": 1,
+      "content": "11月8号之前大家把自己的生涯规划报告还有PPT以文件形式发给我",
+      "isSend": 0,
+      "senderUsername": "wxid_aaaaaaaaaaaa22",
+      "senderDisplayName": "班长",
+      "source": "",
+      "senderAvatarKey": "wxid_aaaaaaaaaaaa22",
+      "platformMessageId": "9128159003980813812"
+    },
+    {
+      "localId": 2,
+      "createTime": 1794050000,
+      "formattedTime": "2026-11-07 09:13:20",
+      "type": "图片消息",
+      "localType": 3,
+      "content": "[图片]",
+      "isSend": 0,
+      "senderUsername": "wxid_bbbbbbbbbbbb33",
+      "senderDisplayName": "学委",
+      "source": "",
+      "senderAvatarKey": "wxid_bbbbbbbbbbbb33",
+      "imageMd5": "7c365a2bf70155131d0f2782d10314d4",
+      "imageDatName": "c937fb0df69148e7436354bc169e5208",
+      "platformMessageId": "9128159003980813999"
+    }
+  ]
+}

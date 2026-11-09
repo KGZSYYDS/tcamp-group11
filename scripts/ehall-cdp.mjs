@@ -34,7 +34,7 @@ const TARGET_HOST = new URL(APP_URL).hostname;
 
 fs.mkdirSync(PROFILE, { recursive: true });
 
-const cred = loadCredentials();
+const cred = await loadCredentials();
 const login = await casLogin(cred.username, cred.password, SERVICE);
 const cookies = (login.jar.dump().find(([d]) => d === TARGET_HOST) || [])[1] || [];
 console.log("目标:", APP_URL);

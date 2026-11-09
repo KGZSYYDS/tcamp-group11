@@ -1,31 +1,43 @@
 /**
- * 群聊 → 会议 采集器
+ * 群聊 → 时间轴 采集器
  *
- * 链路：WeFlow 导出本机微信会话 → 拼成带时间的聊天记录 → 模型提取会议 → 去重 → 写云库
+ * 链路：WeFlow 导出本机微信会话 → 正则预筛出「提到时间」的消息 → 模型把时间归一化
+ *       → 按源消息去重 → 写本机文件（data/meetings/meetings-<日期>.json）
+ *
+ * 去哪里：**默认只写本机文件**，网页「我的」页导入后进浏览器本地库。
+ * 从自己的微信里排出来的事是用户级数据，不进全校共享的 events 表——
+ * 那是公共日历，个人数据进去就得靠身份标记 + 认领才隔离得开，等于自找麻烦。
+ * 确实要写云库（团队共用的演示数据）时显式加 --publish。
+ *
+ * 设计取向：**先抓时间，再归类**。
+ * 日历的排布只依赖「什么时候有事」，不依赖「这事属于哪一类」。所以采集时不做
+ * 「这算不算活动」的前置判断——那会漏掉一半；而是把所有带时间约束的消息都提出来，
+ * 拿到时间轴之后再按内容分到 meeting / deadline / exam / pe / activity。
  *
  * 为什么能这么做：WeFlow 用用户自己的账号密钥读本机数据库，属于「导出自己的聊天记录」，
  * 不需要注入客户端、不读进程内存。密钥由 WeFlow 自己保管在本机配置目录，本脚本不读、不复制。
  *
  * 隐私边界（重要）：
  *   - 原始聊天只落在本机 data/wechat/ 下，**不上传**
- *   - 只有提取出来的会议事件（标题/时间/地点）进云库
+ *   - 只有提取出来的事件（标题/时间/地点）进本机文件
  *   - 群里其他人的闲聊不落库；提取失败的片段也不落库
  *   - 送进模型的是文本，这一步无法避免，但只发消息正文、不发 wxid、不发头像/附件
  *
- * 归属：与课表同一套机制。source_url 带「学号哈希」，用户登录后在「我的」页认领一次，
- * 这些会议才归属到他账号并只对他可见。
- *
  * 用法：
- *   node scripts/collect-meetings.mjs --list                列出可选的群
- *   node scripts/collect-meetings.mjs --dry-run --days 7    只看提取结果，不写库
+ *   node scripts/collect-meetings.mjs --list                列出所有群（按活跃度）
+ *   node scripts/collect-meetings.mjs --all-groups --dry-run  全量扫所有群，只看结果
+ *   node scripts/collect-meetings.mjs --all-groups           全量扫 + 写本机文件（默认）
  *   node scripts/collect-meetings.mjs --groups "群名A,群名B" --days 3
  *   node scripts/collect-meetings.mjs                       按 data/meeting-sources.json 跑
- *   node scripts/collect-meetings.mjs --xh 2024150072       指定学号（默认从办事大厅会话取）
+ *   node scripts/collect-meetings.mjs --no-filter            关掉时间预筛（全量送模型，慢且贵）
+ *   node scripts/collect-meetings.mjs --xh 2024xxxxxx        指定学号（仅 --publish 时需要）
+ *   node scripts/collect-meetings.mjs --publish              写云库（需要身份标记，默认关闭）
  */
 import fs from "fs";
 import path from "path";
 import { createWorkBuddyCloud } from "@tencent-ai/workbuddy-cloud-sdk";
 import { meetingSystemPrompt, weekAnchors } from "../lib/meeting-prompt.mjs";
+import { hasStrongTimeHint, hasTimeHint } from "../lib/time-hints.mjs";
 import { ownerKeyOf, groupKeyOf } from "./lib/owner.mjs";
 import {
   checkWeFlow,
@@ -61,9 +73,18 @@ const has = (n) => argv.includes(`--${n}`);
 
 const LIST_ONLY = has("list");
 const DRY = has("dry-run");
-const NO_DB = has("no-db") || DRY;
+/**
+ * 默认只写本机文件，不碰云库。
+ * 理由和课表一样：从「你自己的微信」里排出来的会议/截止是用户级数据，
+ * 塞进全校共享的 events 表就会变成「别人也能看见」，要靠身份标记 + 认领才隔离得开。
+ * 需要进云库（团队共用的演示数据）时显式加 --publish。
+ */
+const PUBLISH = has("publish");
+const NO_DB = !PUBLISH || DRY;
 const MEETINGS_ONLY = has("meetings-only");
 const FORCE_XH = has("force-xh");
+const ALL_GROUPS = has("all-groups") || has("all");
+const NO_FILTER = has("no-filter");
 const DAYS = Number(opt("days", "7")) || 7;
 const GROUPS_ARG = opt("groups");
 const XH = opt("xh");
@@ -217,17 +238,25 @@ const TEXT_TYPES = new Set([
 ]);
 
 /** 把一批消息拼成 [时间] 发送者: 内容 的逐行记录 */
-function toTranscript(messages) {
+function toTranscript(messages, { filter = false, strict = false } = {}) {
   const lines = [];
+  let scanned = 0;
+  let kept = 0;
+  const test = strict ? hasStrongTimeHint : hasTimeHint;
   for (const m of messages) {
     if (!TEXT_TYPES.has(m.type)) continue;
     const content = String(m.content || "").replace(/\s+/g, " ").trim();
     if (!content || content === "[图片]") continue;
+    scanned++;
+    // 预筛只看正文。行首的 [11-08 09:41] 是时间戳前缀，拿它去匹配时间正则
+    // 会让每一行都命中，等于没筛——这个坑必须在这里拦住。
+    if (filter && !test(content)) continue;
+    kept++;
     const t = (m.formattedTime || "").slice(5, 16); // MM-DD HH:mm
     const who = m.senderDisplayName || (m.isSend ? "我" : "成员");
     lines.push(`[${t}] ${who}: ${content.slice(0, 400)}`);
   }
-  return lines;
+  return { lines, scanned, kept };
 }
 
 /** 按字符数切块，尽量在消息边界切开 */
@@ -495,22 +524,38 @@ async function main() {
   log(`会话：${contacts.length} 个，其中群 ${groups.length} 个`);
 
   if (LIST_ONLY) {
+    // 全量模式下白名单已不是必需，分数只作「这个群像不像通知群」的参考提示。
     const scored = groups.map((g) => scoreGroup(g)).sort((a, b) => b.score - a.score);
-    const hits = has("all") ? scored : scored.filter((g) => g.score >= 3);
-    log(`\n疑似通知群（${hits.length} 个 / 共 ${groups.length} 个群，按可能性排序）：`);
-    if (!hits.length) log("  （没筛出来，加 --all 看全部群）");
-    for (const g of hits.slice(0, has("all") ? 400 : 40)) {
+    const hits = ALL_GROUPS || has("all") ? scored : scored;
+    log(`\n全部群（${hits.length} 个 / 共 ${groups.length}）：`);
+    if (!hits.length) log("  （一个群都没有）");
+    for (const g of hits.slice(0, 400)) {
       const tag = g.hits.length ? g.hits.join(" ") : "-";
       log(`  ${String(g.score).padStart(3)}  ${g.name}   ${g.username}   [${tag}]`);
     }
-    log("\n分数越高越可能发通知。挑好后写进 data/meeting-sources.json，");
-    log("或用 --groups \"群名A,群名B\" 指定；加 --all 可看全部群。");
+    log("\n分数只是「像不像通知群」的参考，不影响采集：");
+    log("  --all-groups  扫全部群（推荐，靠群名筛群必然漏）");
+    log("  --groups \"群名A,群名B\"  只扫指定的群");
+    log("  不指定则读 data/meeting-sources.json");
     return;
   }
 
-  const { groups: sources, options } = loadSources();
+  let sources;
+  let options = {};
+  if (ALL_GROUPS) {
+    // 全量模式：所有群都扫。不再靠群名白名单猜「哪个群会发通知」——
+    // 班群、社团群、课程群、甚至家属群都可能出现时间和截止，
+    // 靠名字筛必然漏，且漏掉的是「没人知道该去哪看」的那部分。
+    sources = groups.map((g) => ({ name: g.displayName, id: g.username }));
+    options = { days: DAYS };
+    log(`全量模式：扫全部 ${groups.length} 个群`);
+  } else {
+    const r = loadSources();
+    sources = r.groups;
+    options = r.options || {};
+  }
   if (!sources.length) {
-    throw new Error("data/meeting-sources.json 里没有配置任何群。");
+    throw new Error("没有可扫的群。加 --all-groups 扫全部，或配置 data/meeting-sources.json。");
   }
 
   // 命令行没显式给 --days 时，用配置文件里的值
@@ -530,20 +575,26 @@ async function main() {
   }
   if (!targets.length) throw new Error("指定的群一个都没找到");
 
-  const xh = await resolveStudentId();
-  if (!xh) {
-    throw new Error(
-      "拿不到学号，无法确定这些会议归谁。用 --xh <学号> 指定，或先跑一次 collect:timetable 让会话缓存下来。"
-    );
+  // 归属键只在真的写云库时才需要。默认走本机文件，不需要学号、也不需要认领：
+  // 文件在谁的电脑上就是谁的。
+  let ownerKey = null;
+  if (PUBLISH) {
+    const xh = await resolveStudentId();
+    if (!xh) {
+      throw new Error(
+        "写云库需要学号来确定归属。用 --xh <学号> 指定，或先跑一次 collect:timetable 让会话缓存下来；\n" +
+          "不需要云库就去掉 --publish（默认只写本机文件）。"
+      );
+    }
+    ownerKey = ownerKeyOf(xh);
+    log(`归属键：${ownerKey}（学号哈希）`);
   }
-  const ownerKey = ownerKeyOf(xh);
-  log(`归属键：${ownerKey}（学号哈希，用于认领）`);
 
   const today = new Date();
   const start = isoDate(addDays(today, -days));
   const end = isoDate(today);
   log(`时间范围：${start} ~ ${end}（${days} 天）`);
-  log(`收录：${withDeadline ? "会议 + 截止时间" : "只看会议"}\n`);
+  log(`收录：${withDeadline ? "会议 + 截止时间" : "只看会议"}${NO_FILTER ? " · 时间预筛已关闭" : " · 只送含时间表达的消息给模型"}\n`);
 
   const model = await pickModel();
   log(`模型：${model.id}\n`);
@@ -560,8 +611,18 @@ async function main() {
       console.log(/no messages found/i.test(e.message) ? "本区间没消息" : `失败：${e.message}`);
       continue;
     }
-    const lines = toTranscript(exp.messages);
-    console.log(`${exp.count} 条消息，${lines.length} 条含文字`);
+    // 商业/生活类群（家教、闲置、门店会员）单独提高门槛：
+    // 这些群里「明天下午三点来接孩子」满屏都是，普通预筛会放行八成，
+    // 但真正的通知（停课、改期、统一缴费）都会给出具体日期，所以只留强信号。
+    const strict = scoreGroup(g).score < 0;
+    const { lines, scanned, kept: hinted } = toTranscript(exp.messages, {
+      filter: !NO_FILTER,
+      strict,
+    });
+    const pct = scanned ? Math.round((hinted / scanned) * 100) : 0;
+    console.log(
+      `${exp.count} 条消息 · ${scanned} 条有正文 → 预筛留下 ${hinted} 条（${pct}%）${strict ? " · 严格" : ""}`
+    );
 
     if (!lines.length) continue;
 
@@ -591,12 +652,50 @@ async function main() {
 
   fs.mkdirSync(OUT_DIR, { recursive: true });
   const outFile = path.join(OUT_DIR, `meetings-${isoDate(today)}.json`);
+
+  /**
+   * 网页端导入用的本机格式。时间用不带时区的本地串，前端 new Date 直接按本地解析，
+   * 避免 +08:00 在别的时区机器上错位。
+   */
+  const localEvents = future.map((m) => {
+    const cutoff = m.type === "deadline" ? m.endTime || m.startTime : m.startTime;
+    return {
+      kind: m.type === "deadline" ? "deadline" : "meeting",
+      title: m.title,
+      startAt: cutoff ? `${m.date}T${cutoff}:00` : `${m.date}T00:00:00`,
+      endAt: m.type !== "deadline" && m.startTime && m.endTime ? `${m.date}T${m.endTime}:00` : undefined,
+      allDay: !cutoff,
+      location: m.location || null,
+      note: [m.group ? `来自群：${m.group}` : "", m.quote ? `原话：${m.quote}` : ""]
+        .filter(Boolean)
+        .join(" · "),
+    };
+  });
+
   fs.writeFileSync(
     outFile,
-    JSON.stringify({ generatedAt: new Date().toISOString(), range: { start, end }, groups: targets.map((t) => t.displayName), meetings: future }, null, 2),
+    JSON.stringify(
+      {
+        format: "szu-calendar-personal",
+        version: 1,
+        generatedAt: new Date().toISOString(),
+        range: { start, end },
+        groups: targets.map((t) => t.displayName),
+        counts: {
+          meeting: localEvents.filter((e) => e.kind === "meeting").length,
+          deadline: localEvents.filter((e) => e.kind === "deadline").length,
+        },
+        events: localEvents,
+        // 兼容旧字段：早期只有 meetings，别让下游工具突然读不到
+        meetings: future,
+      },
+      null,
+      2
+    ),
     "utf-8"
   );
   log(`已写入 ${path.relative(process.cwd(), outFile)}`);
+  log("下一步：打开日历 → 「我的」→ 导入文件，选中它。");
 
   for (const m of future) {
     const tag = m.type === "deadline" ? "截止" : "会议";
@@ -634,7 +733,8 @@ async function main() {
 
   const res = await insert(todo);
   log(`入库完成：新增 ${res.added}，失败 ${res.failed}`);
-  log(`\n提醒：这些会议归属到学号哈希 ${ownerKey}，需要在网页「我的」页填学号认领一次，才会显示并只对你可见。`);
+  log(`\n注意：写云库的条目 scope=personal、归属到学号哈希 ${ownerKey}，仍是「写进公共表再隔离」的老路。`);
+  log("日常使用请不要加 --publish，导本机文件就够了。");
 }
 
 main().catch((e) => {

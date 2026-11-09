@@ -1,19 +1,32 @@
 /**
- * 公文通采集结果 → 云数据库（events 表，scope=school 公共事件）
+ * 公文通 / 官网采集结果 → 云数据库（events 表，scope=school 公共事件）
  *
  * 直接走数据面 REST（PostgREST 语义），不依赖浏览器登录态：
  *   POST https://<endpoint>/.cloud/database/rest/events
  *   header: x-wb-webapp-access-key: <lib/cloud.ts 里的 publishableKey>
+ *
+ * 一条通知可能产生两行：
+ *   ① 活动本身（讲座 11/20 开讲）—— 正文里有明确时间才生成
+ *   ② 报名/提交截止（11/9 12:00 前报名）—— 正文里有截止表达才生成，source_url 带 #ddl
+ * 两行分开存，是因为它们在日历上落在不同日期，合成一条必然丢一半信息。
+ *
+ * 两个源共用这一套逻辑（字段完全同构，只是来源不同）：
+ *   --source board  公文通 www1.szu.edu.cn/board/（要登录，校内通知）
+ *   --source web    官网 www.szu.edu.cn（公开，公告/学术动态/新闻）
  *
  * 幂等：按 source_url 去重，重复运行只补新增。
  *
  * 用法：
  *   node scripts/ingest-notices.mjs --dry-run
  *   node scripts/ingest-notices.mjs
+ *   node scripts/ingest-notices.mjs --source web --file data/web/notices-web-latest.json
+ *   node scripts/ingest-notices.mjs --ddl-only       只补截止（已入库的通知也能补）
+ *   node scripts/ingest-notices.mjs --no-ddl         只要活动，不要截止
  *   node scripts/ingest-notices.mjs --file data/board/notices-20261108.json --batch 40
  */
 import fs from "fs";
 import path from "path";
+import { extractDeadline, isActionableDeadline, isFacultyDeadline } from "../lib/deadline.mjs";
 
 const ENDPOINT = "https://szu-calendar.app.workbuddy.host";
 const KEY = "wbpk_WzXwYj6XGdnn7m7c2NTc2V_k6ZmPeTV5hMYlO7DXtHIUckhNgKMaVZy";
@@ -25,8 +38,13 @@ const opt = (n, d = null) => {
   return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith("--") ? argv[i + 1] : d;
 };
 const DRY = argv.includes("--dry-run");
+const DDL_ONLY = argv.includes("--ddl-only");
+const NO_DDL = argv.includes("--no-ddl");
 const BATCH = Number(opt("batch", "40"));
-const FILE = path.resolve(opt("file", "data/board/notices-latest.json"));
+const SOURCE = opt("source", "board");
+const FILE = path.resolve(
+  opt("file", SOURCE === "web" ? "data/web/notices-web-latest.json" : "data/board/notices-latest.json")
+);
 
 const HEADERS = {
   "x-wb-webapp-access-key": KEY,
@@ -59,6 +77,9 @@ function pad(n) {
 /**
  * 活动时间优先取正文里的「时间：…」，取不到退回发布日期。
  * 公文正文常见写法：2026年11月9日（一）10：00 / 11月9日 14:30
+ *
+ * 返回值多一个 found：区分「正文真的写了时间」和「只是拿发布日期兜底」。
+ * 后者不算事件时间——一条只有报名截止的通知，发布日期不是任何事发生的时刻。
  */
 function extractWhen(item) {
   const text = item.content || "";
@@ -71,45 +92,83 @@ function extractWhen(item) {
     /(20\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日[^\d]{0,12}(\d{1,2})\s*[:：]\s*(\d{2})/
   );
   if (m) {
-    return { date: `${m[1]}-${pad(m[2])}-${pad(m[3])}`, time: `${pad(m[4])}:${m[5]}` };
+    return { date: `${m[1]}-${pad(m[2])}-${pad(m[3])}`, time: `${pad(m[4])}:${m[5]}`, found: true };
   }
 
   // 2) 只有月日 + 时间，年份取发布年
   const year = pubDate.slice(0, 4);
   m = text.match(/(\d{1,2})\s*月\s*(\d{1,2})\s*日[^\d]{0,12}(\d{1,2})\s*[:：]\s*(\d{2})/);
   if (m) {
-    return { date: `${year}-${pad(m[1])}-${pad(m[2])}`, time: `${pad(m[3])}:${m[4]}` };
+    return { date: `${year}-${pad(m[1])}-${pad(m[2])}`, time: `${pad(m[3])}:${m[4]}`, found: true };
   }
 
   // 3) 只有日期
   m = text.match(/(20\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
-  if (m) return { date: `${m[1]}-${pad(m[2])}-${pad(m[3])}`, time: null };
+  if (m) return { date: `${m[1]}-${pad(m[2])}-${pad(m[3])}`, time: null, found: true };
 
-  return { date: pubDate, time: null };
+  return { date: pubDate, time: null, found: false };
 }
 
-function toRow(item) {
+/**
+ * 一条通知 → 1~2 行。
+ *
+ * 判断「要不要出活动行」用的不是「有没有时间」，而是「正文里有没有真正的活动时间」：
+ * 一条只写「请于11月20日前提交」的通知，摘要时间只是发布日期，
+ * 拿它当事件时间会在日历上多出一个毫无意义的点。
+ */
+function toRows(item) {
   const when = extractWhen(item);
   const kind = classify(item.title || "", item.category);
+  const rows = [];
 
-  // 备注里放分类/单位 + 正文摘要，方便前端展示与后续 AI 精修
-  const noteParts = [
+  const baseNote = [
     item.category ? `栏目：${item.category}` : null,
     item.department ? `发布：${item.department}` : null,
     item.content ? item.content.slice(0, 300).replace(/\s+/g, " ") : null,
   ].filter(Boolean);
 
-  return {
+  const base = {
     kind,
     title: (item.title || "").slice(0, 200),
     start_at: when.time ? `${when.date}T${when.time}:00+08:00` : `${when.date}T00:00:00+08:00`,
     all_day: !when.time,
     link: item.url,
-    note: noteParts.join("｜") || null,
+    note: baseNote.join("｜") || null,
     scope: "school",
-    source: "board",
+    source: SOURCE,
     source_url: item.url,
   };
+
+  // 截止行：只收学生能用上的（老师申报项目、数据库试用到期这些不进日历）
+  let ddl = null;
+  if (!NO_DDL) {
+    const d = extractDeadline(item.content, item.publishedAt);
+    if (d && isActionableDeadline(item.title) && !isFacultyDeadline(item.title, item.content)) {
+      ddl = d;
+      // 没写具体钟点就按当日 23:59 算：截止这类东西，写成「全天」在倒计时里没法用
+      const time = d.time || "23:59";
+      rows.push({
+        kind: "deadline",
+        title: (item.title || "").slice(0, 200),
+        start_at: `${d.date}T${time}:00+08:00`,
+        all_day: false,
+        link: item.url,
+        note: [`截止：${d.date} ${d.time || "23:59（正文未写钟点）"}`, `原话：${d.phrase}`]
+          .concat(item.department ? [`发布：${item.department}`] : [])
+          .join("｜"),
+        scope: "school",
+        source: SOURCE,
+        // 同一篇通知的活动行与截止行共用一个 url，靠后缀区分身份
+        source_url: `${item.url}#ddl`,
+      });
+    }
+  }
+
+  if (DDL_ONLY) return rows;
+
+  // 有真实活动时间，或者根本抽不出截止 → 保留活动行
+  if (when.found || !ddl) rows.push(base);
+  return rows;
 }
 
 // ---------- 主流程 ----------
@@ -139,7 +198,10 @@ async function existingUrls() {
 
 async function main() {
   if (!fs.existsSync(FILE)) {
-    console.error(`找不到 ${FILE}\n先跑：npm run collect:board -- --login`);
+    console.error(
+      `找不到 ${FILE}\n先跑：` +
+        (SOURCE === "web" ? "npm run collect:web" : "npm run collect:board -- --login")
+    );
     process.exit(1);
   }
 
@@ -149,22 +211,29 @@ async function main() {
     process.exit(1);
   }
 
-  const rows = items.filter((it) => it.title && it.url).map(toRow);
+  const rows = items.filter((it) => it.title && it.url).flatMap(toRows);
 
   const dist = rows.reduce((acc, r) => ((acc[r.kind] = (acc[r.kind] || 0) + 1), acc), {});
-  console.log(`读入 ${rows.length} 条：${path.basename(FILE)}`);
+  const ddlRows = rows.filter((r) => r.kind === "deadline");
+  const today = new Date().toISOString().slice(0, 10);
+  const liveDdl = ddlRows.filter((r) => r.start_at.slice(0, 10) >= today);
+  console.log(`读入 ${items.length} 条通知 → ${rows.length} 行：${path.basename(FILE)}（source=${SOURCE}）`);
   console.log("分类分布：", dist);
+  console.log(`截止行 ${ddlRows.length} 条，其中未过期 ${liveDdl.length} 条`);
 
   if (DRY) {
-    console.log("\n--dry-run 预览前 3 条：");
-    console.log(JSON.stringify(rows.slice(0, 3), null, 2));
+    console.log("\n--dry-run 截止行（前 8 条）：");
+    for (const r of liveDdl.slice(0, 8)) {
+      console.log(`  ${r.start_at.slice(0, 16)}  ${r.title.slice(0, 40)}`);
+      console.log(`      ${r.note.split("｜")[1] || ""}`);
+    }
     return;
   }
 
   console.log("读取库内已有 source_url……");
   const exists = await existingUrls();
   const todo = rows.filter((r) => !exists.has(r.source_url));
-  console.log(`库里已有 ${exists.size} 条 board 来源，本次需新增 ${todo.length} 条`);
+  console.log(`库里已有 ${exists.size} 条带 source_url 的记录，本次需新增 ${todo.length} 条`);
 
   if (todo.length === 0) return;
 

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://szu-calendar.local/schema/personal-file.json",
+  "title": "个人事项文件 · szu-calendar-personal",
+  "description": "collect:meetings 产出、网页「导入文件」消费。文件名约定 meetings-<日期>.json。",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["format", "version", "events"],
+  "properties": {
+    "format": { "const": "szu-calendar-personal" },
+    "version": { "type": "integer", "const": 1 },
+    "generatedAt": { "$ref": "https://szu-calendar.local/schema/common.json#/$defs/dateTime" },
+    "range": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "start": { "$ref": "https://szu-calendar.local/schema/common.json#/$defs/dateOnly" },
+        "end": { "$ref": "https://szu-calendar.local/schema/common.json#/$defs/dateOnly" }
+      }
+    },
+    "groups": { "type": "array", "items": { "type": "string" }, "description": "扫了哪些群（群名）" },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "meeting": { "type": "integer", "minimum": 0 },
+        "deadline": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "events": {
+      "type": "array",
+      "items": { "$ref": "https://szu-calendar.local/schema/personal-item.json" }
+    },
+    "meetings": {
+      "type": "array",
+      "description": "旧字段，早期版本只有它。新代码读 events；保留只为不让旧下游工具失效。",
+      "items": { "type": "object" }
+    }
+  }
+}

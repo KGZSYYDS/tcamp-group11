@@ -1,0 +1,19 @@
+[
+  {
+    "id": "ci3f9a2d",
+    "course": "计算机系统（3）-组成设计",
+    "teacher": "陈老师",
+    "occurredAt": "2026-11-05T08:30:00.000Z",
+    "note": "课前扫码",
+    "source": "manual",
+    "createdAt": "2026-11-05T01:02:33.120Z"
+  },
+  {
+    "id": "ci3f9b81",
+    "course": "脑与认知科学",
+    "teacher": "李老师",
+    "occurredAt": "2026-11-06T10:15:00.000Z",
+    "source": "paste-import",
+    "createdAt": "2026-11-06T02:31:12.009Z"
+  }
+]

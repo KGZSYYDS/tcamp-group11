@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://szu-calendar.local/schema/personal-item.json",
+  "title": "PersonalItem · 从群聊 / 课表排出的事项",
+  "description": "微信群聊抽取与课表都会落到这个形状，存本机 personal 库。没有 id，去重靠 (startAt 日期, kind, title)。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "title", "startAt"],
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": ["meeting", "deadline"],
+      "description": "meeting=要到场/上线（开会、答辩、宣讲、考试）deadline=之前要交（作业、报名、表格）"
+    },
+    "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "startAt": { "$ref": "https://szu-calendar.local/schema/common.json#/$defs/dateTime" },
+    "endAt": { "$ref": "https://szu-calendar.local/schema/common.json#/$defs/dateTime" },
+    "allDay": { "type": "boolean" },
+    "location": { "type": ["string", "null"] },
+    "course": { "type": "string" },
+    "note": {
+      "type": "string",
+      "description": "回查用。群聊来源的约定格式：来自群：<群名> · 原话：<原文片段>"
+    }
+  }
+}

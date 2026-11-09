@@ -11,25 +11,26 @@
  * 课表行字段：KCM 课程名 / SKJS 教师 / JASMC 教室 / SKXQ 星期 / KSJC~JSJC 节次
  *             ZCMC 周次说明 / SKZC 周次掩码（第 n 位 = 1 表示第 n 周上这门课）
  *
- * 归属：课表是「个人数据」，但脚本用的是公共 anon 密钥，写进去的 owner_id 只能是 anon。
- *      所以 source_url 里带上「学号哈希」的前 16 位（ehall://xskcb/<hash>/<JXBID>/…），
- *      前端登录后凭学号算出同一个哈希来「认领」，认领后 owner_id 才变成该用户，
- *      课表也只对本人可见（见 lib/data.ts claimTimetable）。
- *      注意：这里只写哈希，绝不写学号明文——events 表是公开可读的。
+ * 归属：**课表不进公共数据库**。
+ *
+ * events 表是「全校共享的公开日历」，用它装个人课表是设计错误：为了做到「只让本人看见」，
+ * 只能在 source_url 里塞学号哈希、再让用户填学号认领——而学号是可枚举的，谁先认领算谁的，
+ * 于是产生了本不该存在的「抢占」问题。
+ *
+ * 现在的做法：课表只写本机 data/timetable/<学期>.json，网页端在「我的」页导入这个文件，
+ * 存进浏览器 IndexedDB。既不上云、也不公开、也没有归属争议——课表本来就是一学期一换的
+ * 临时数据，需要时重新跑一次采集即可。
  *
  * 用法：
- *   node scripts/collect-timetable.mjs --dry-run     只看解析结果，不写库
- *   node scripts/collect-timetable.mjs               采下来 + 写入云数据库
- *   node scripts/collect-timetable.mjs --no-db       只写 data/timetable/*.json
+ *   node scripts/collect-timetable.mjs --dry-run     只看解析结果，不写文件
+ *   node scripts/collect-timetable.mjs               采集并写入 data/timetable/*.json（默认，不碰云库）
  *   node scripts/collect-timetable.mjs --week1 2026-08-31   手动指定第 1 周周一
  *   node scripts/collect-timetable.mjs --term 2026-2027-1   指定学期
- *   node scripts/collect-timetable.mjs --xh 2024150072      指定学号（接口没给时用）
+ *   node scripts/collect-timetable.mjs --xh 2024xxxxxx      指定学号（接口没给时用）
  *   node scripts/collect-timetable.mjs --file <resp.json>   离线解析已抓到的 xskcb 响应
- *   node scripts/collect-timetable.mjs --replace            先清掉本来源旧数据再入库
  */
 import fs from "fs";
 import path from "path";
-import crypto from "node:crypto";
 import { getEhallJar, openApp, appPost } from "./lib/ehall.mjs";
 import { getJwkwJar, resolveWeek1Monday } from "./lib/jwkw.mjs";
 
@@ -73,8 +74,9 @@ const opt = (n, d = null) => {
   return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith("--") ? argv[i + 1] : d;
 };
 const DRY = argv.includes("--dry-run");
-const NO_DB = argv.includes("--no-db") || DRY;
 const FORCE_LOGIN = argv.includes("--relogin");
+/** 显式要求写云库。默认关：课表属于用户级数据，不该进全校公开的 events 表。 */
+const PUBLISH = argv.includes("--publish");
 const WEEK1_OVERRIDE = opt("week1");
 const TERM_OVERRIDE = opt("term");
 const WEEK_OVERRIDE = opt("week");
@@ -149,15 +151,13 @@ async function fetchSchedule(jar, base, term, week, xh) {
 
 // ---------- 展开成日历事件 ----------
 
-/** 学号 → 16 位哈希前缀。前端 claimTimetable 用同一算法，学号明文不进库 */
-export function ownerKeyOf(xh) {
-  if (!xh) return "-";
-  return crypto.createHash("sha256").update(String(xh).trim()).digest("hex").slice(0, 16);
-}
-
-function expand(rows, week1Monday, periods, xh) {
+/**
+ * 不再用学号哈希做归属键。
+ * 课表只落本机文件，网页端按文件导入，归属天然是「谁的浏览器就是谁的」，
+ * 不需要在数据里标记任何身份信息。少一个哈希，少一份可被反推的面。
+ */
+function expand(rows, week1Monday, periods) {
   const events = [];
-  const ownerKey = ownerKeyOf(xh);
   for (const r of rows) {
     const mask = String(r.SKZC || "");
     const weekday = Number(r.SKXQ);
@@ -173,21 +173,20 @@ function expand(rows, week1Monday, periods, xh) {
       events.push({
         kind: "other",
         title: r.KCM,
-        start_at: `${iso(date)}T${p1[0]}:00+08:00`,
-        end_at: `${iso(date)}T${p2[1]}:00+08:00`,
-        all_day: false,
+        // 本机 JSON 用不带时区的本地时间串，前端 new Date 直接按本地解析，避免时区偏移
+        startAt: `${iso(date)}T${p1[0]}:00`,
+        endAt: `${iso(date)}T${p2[1]}:00`,
+        allDay: false,
         course: r.KCM,
         location: r.JASMC || null,
-        note: `第${week}周 · ${ks}-${js}节 · ${r.SKJS || ""}${r.KXH ? ` · 课序${r.KXH}` : ""}`.trim(),
-        scope: "personal",
-        source: "ehall",
-        // 学号哈希放在第二段，作为前端「认领」时的归属凭据
-        source_url: `ehall://xskcb/${ownerKey}/${r.JXBID}/${week}/${weekday}/${ks}-${js}`,
-        link: null,
+        teacher: r.SKJS || null,
+        week,
+        periods: `${ks}-${js}`,
+        jxbid: r.JXBID || null,
       });
     }
   }
-  return events.sort((a, b) => a.start_at.localeCompare(b.start_at));
+  return events.sort((a, b) => a.startAt.localeCompare(b.startAt));
 }
 
 // ---------- 入库 ----------
@@ -274,7 +273,7 @@ async function main() {
 
     xh = xh || (await fetchStudentId(jar));
     console.log(`学号：${xh ?? "（接口没给，按会话身份取）"}`);
-    if (!xh) console.warn("警告：没取到学号，若课表为空请用 --xh <学号> 指定；认领也会失效");
+    if (!xh) console.warn("警告：没取到学号，若课表为空请用 --xh <学号> 指定");
 
     rows = await fetchSchedule(jar, app.base, { code: termCode }, currentWeek || 1, xh);
   }
@@ -301,27 +300,57 @@ async function main() {
   }
 
   const periods = loadPeriods();
-  const events = expand(rows, week1Monday, periods, xh);
-  console.log(`归属键：${ownerKeyOf(xh)}（学号哈希前 16 位，用于认领）`);
+  const events = expand(rows, week1Monday, periods);
   const courses = [...new Set(rows.map((r) => r.KCM))];
   console.log(`课程 ${courses.length} 门 → 展开 ${events.length} 个上课事件`);
 
   const dir = path.resolve("data/timetable");
   fs.mkdirSync(dir, { recursive: true });
   const out = path.join(dir, `timetable-${termCode}.json`);
-  fs.writeFileSync(
-    out,
-    JSON.stringify({ term: termCode, termName, week1Monday: iso(week1Monday), currentWeek, courses, events }, null, 2),
-    "utf-8"
-  );
-  console.log(`已写入 ${path.relative(process.cwd(), out)}`);
+  const payload = {
+    format: "szu-calendar-timetable",
+    version: 1,
+    term: termCode,
+    termName,
+    week1Monday: iso(week1Monday),
+    currentWeek,
+    courses,
+    counts: { courses: courses.length, sessions: events.length },
+    generatedAt: new Date().toISOString(),
+    // 档案一起带上：网页导入这一个文件就同时拿到学院/专业/年级，
+    // 不用让用户再手填一遍——手填的学院名一旦和库里字符串不一致，过滤就永远对不上。
+    profile: (() => {
+      const f = path.resolve("data/profile.json");
+      if (!fs.existsSync(f)) return undefined;
+      try {
+        const p = JSON.parse(fs.readFileSync(f, "utf-8"));
+        return {
+          name: p.name,
+          studentId: p.studentId,
+          college: p.college,
+          major: p.major,
+          className: p.className,
+          grade: p.grade,
+          level: p.level,
+          levelName: p.levelName,
+          sex: p.sex,
+        };
+      } catch {
+        return undefined;
+      }
+    })(),
+    events,
+  };
+  fs.writeFileSync(out, JSON.stringify(payload, null, 2), "utf-8");
+  console.log(`已写入 ${path.relative(process.cwd(), out)}（${(fs.statSync(out).size / 1024).toFixed(1)} KB）`);
+  console.log(`\n下一步：打开日历 → 「我的」→ 导入课表，选中这个文件。`);
 
   if (DRY) {
     console.log("\n--dry-run 前 5 条：");
     console.log(JSON.stringify(events.slice(0, 5), null, 2));
     return;
   }
-  if (NO_DB) return;
+  if (!PUBLISH) return;
 
   if (REPLACE) {
     console.log("--replace：先清掉库里 source=ehall 的旧课表……");

@@ -45,8 +45,8 @@ export async function getEhallJar({ force = false } = {}) {
     }
   }
 
-  const cred = loadCredentials();
-  if (!cred) throw new Error("缺少统一认证凭据：先跑 node scripts/save-credentials.mjs <账号> <密码>");
+  const cred = await loadCredentials();
+  if (!cred) throw new Error("缺少统一身份认证账号：先登录一次办事大厅，或用 SZU_USER / SZU_PASS 环境变量传入");
 
   let lastErr;
   for (let attempt = 1; attempt <= 3; attempt++) {

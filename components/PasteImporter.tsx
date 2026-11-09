@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { createEvent, importDdls } from "@/lib/data";
+import { createEvent } from "@/lib/data";
+import { addMyEvent, importDdls } from "@/lib/local-store";
 import {
   REMIND_OPTIONS,
   buildMeetingNote,
@@ -111,7 +112,8 @@ export default function PasteImporter() {
     try {
       for (const m of picked) {
         const startTime = m.startTime || "09:00";
-        await createEvent({
+        // 群聊里排出来的会议只进本机：正文里有别人的话、有私人安排，没有理由上云
+        addMyEvent({
           kind: m.type === "deadline" ? "deadline" : "meeting",
           title: m.title,
           startAt: new Date(`${m.date}T${startTime}:00`).toISOString(),
@@ -119,8 +121,6 @@ export default function PasteImporter() {
           allDay: !m.startTime,
           location: m.location || undefined,
           note: buildMeetingNote(m),
-          scope: "personal",
-          source: "chat-import",
         });
       }
       setResultMsg(`已加入 ${picked.length} 条（会议 ${picked.filter((m) => m.type !== "deadline").length} / 截止 ${picked.filter((m) => m.type === "deadline").length}）`);
@@ -221,7 +221,7 @@ export default function PasteImporter() {
     setImporting(true);
     setError("");
     try {
-      const r = await importDdls(
+      const r = importDdls(
         selected.map((c) => ({
           course: c.course,
           title: c.title,
@@ -229,7 +229,7 @@ export default function PasteImporter() {
           note: "粘贴导入",
         }))
       );
-      setResultMsg(`导入完成：新增 ${r.added} 条、更新 ${r.updated} 条、跳过 ${r.skipped} 条`);
+      setResultMsg(`导入完成：新增 ${r.added} 条、更新 ${r.updated} 条、跳过 ${r.skipped} 条（只存本机）`);
       setCandidates([]);
       setText("");
     } catch (e) {
@@ -247,7 +247,7 @@ export default function PasteImporter() {
     setSavingEvent(true);
     setError("");
     try {
-      await createEvent({
+      const payload = {
         kind: eventForm.kind,
         title: eventForm.title,
         startAt: new Date(`${eventForm.date}T${eventForm.time || "09:00"}:00`).toISOString(),
@@ -261,7 +261,23 @@ export default function PasteImporter() {
         college: eventForm.scope === "college" ? eventForm.college || undefined : undefined,
         grade: eventForm.scope === "grade" ? eventForm.grade || undefined : undefined,
         source: "paste-import",
-      });
+      };
+      // 和日历面板同一条规则：仅自己留本机，全校/学院/年级才写云库
+      // （ParsedEvent 的 scope 类型不含 personal，但下拉框里有，运行时确实会出现）
+      if ((eventForm.scope as string) === "personal") {
+        addMyEvent({
+          kind: payload.kind,
+          title: payload.title,
+          startAt: payload.startAt,
+          endAt: payload.endAt,
+          link: payload.link,
+          allDay: payload.allDay,
+          location: payload.location,
+          note: "粘贴导入 · 仅自己",
+        });
+      } else {
+        await createEvent(payload);
+      }
       setResultMsg("事件已保存到日历");
       setEventForm(null);
       setText("");

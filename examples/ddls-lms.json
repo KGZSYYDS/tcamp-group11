@@ -1,0 +1,69 @@
+{
+  "total": 8,
+  "items": [
+    {
+      "course": "计算机图形学",
+      "title": "（需网上提交）11月04日——实验三 光照与阴影",
+      "dueAt": "2026-11-22T15:59:00.000Z",
+      "url": "https://lms.szu.edu.cn/course/31761/learning-activity#/material/258414",
+      "note": "畅课作业",
+      "source": "lms-sync"
+    },
+    {
+      "course": "人工智能课程实训",
+      "title": "实验4 模型加速实践",
+      "dueAt": "2026-11-23T15:59:00.000Z",
+      "url": "https://lms.szu.edu.cn/course/31834/learning-activity#/material/218253",
+      "note": "畅课作业",
+      "source": "lms-sync"
+    },
+    {
+      "course": "人工智能课程实训",
+      "title": "大作业-期末提交",
+      "dueAt": "2026-12-29T15:59:00.000Z",
+      "url": "https://lms.szu.edu.cn/course/31834/learning-activity#/material/218259",
+      "note": "畅课作业",
+      "source": "lms-sync"
+    },
+    {
+      "course": "脑与认知科学",
+      "title": "第四次实验报告",
+      "dueAt": "2026-11-24T15:59:00.000Z",
+      "url": "https://lms.szu.edu.cn/course/31835/learning-activity#/material/253698",
+      "note": "畅课作业",
+      "source": "lms-sync"
+    },
+    {
+      "course": "计算机视觉",
+      "title": "实验4：目标检测模型的设计和实现",
+      "dueAt": "2026-11-29T15:59:00.000Z",
+      "url": "https://lms.szu.edu.cn/course/31837/learning-activity#/material/261176",
+      "note": "畅课作业",
+      "source": "lms-sync"
+    },
+    {
+      "course": "计算机系统（3）-组成设计",
+      "title": "实验三",
+      "dueAt": "2026-11-30T15:59:00.000Z",
+      "url": "https://lms.szu.edu.cn/course/31786/learning-activity#/material/235679",
+      "note": "畅课作业",
+      "source": "lms-sync"
+    },
+    {
+      "course": "计算机系统（3）-组成设计",
+      "title": "测试",
+      "dueAt": "2026-11-30T15:59:00.000Z",
+      "url": "https://lms.szu.edu.cn/course/31786/learning-activity#/material/239977",
+      "note": "畅课作业",
+      "source": "lms-sync"
+    },
+    {
+      "course": "计算机系统课程设计",
+      "title": "实践7-8",
+      "dueAt": "2026-12-31T15:59:00.000Z",
+      "url": "https://lms.szu.edu.cn/course/31794/learning-activity#/material/249003",
+      "note": "畅课作业",
+      "source": "lms-sync"
+    }
+  ]
+}

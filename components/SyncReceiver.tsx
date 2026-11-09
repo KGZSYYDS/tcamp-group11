@@ -2,12 +2,8 @@
 
 import { useEffect, useState } from "react";
 import type { DdlInput } from "@/lib/types";
-import {
-  createEvent,
-  eventExistsBySourceUrl,
-  importDdls,
-  mergeProfileCourses,
-} from "@/lib/data";
+import { createEvent, eventExistsBySourceUrl, mergeProfileCourses } from "@/lib/data";
+import { importDdls } from "@/lib/local-store";
 import { parseNoticeToEvent, type ParsedEvent } from "@/lib/llm";
 
 interface Notice {
@@ -79,10 +75,18 @@ export default function SyncReceiver() {
     setBusy(true);
     setError("");
     try {
-      const r = await importDdls(payload.ddls);
-      const c = await mergeProfileCourses(payload.courses);
+      // 作业进本机，这一步是确定的
+      const r = importDdls(payload.ddls);
+      // 画像课程还在云库，写失败不该让作业白导一遍
+      let courseNote = "";
+      try {
+        const c = await mergeProfileCourses(payload.courses);
+        courseNote = `；画像课程共 ${c.total} 门`;
+      } catch {
+        courseNote = "；画像课程没写进云端，作业已存本机，不影响使用";
+      }
       setResult(
-        `作业导入完成：新增 ${r.added}、更新 ${r.updated}、跳过 ${r.skipped}；画像课程共 ${c.total} 门`
+        `作业导入完成：新增 ${r.added}、更新 ${r.updated}、跳过 ${r.skipped}${courseNote}`
       );
       setPayload(null);
     } catch (e) {

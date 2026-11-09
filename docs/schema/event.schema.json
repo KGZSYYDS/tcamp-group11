@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://szu-calendar.local/schema/event.json",
+  "title": "Event · 公共日历事件",
+  "description": "云端 events 表的一行。库里是 snake_case（start_at / all_day / source_url），接口里转成 camelCase。两种形态的真实样例见 examples/cloud-events.json 与 examples/app-events.json。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "title", "startAt", "allDay", "scope", "source"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "云端自增主键，写入时不要带。本机文件里是 uuid。",
+      "minLength": 1
+    },
+    "kind": { "$ref": "https://szu-calendar.local/schema/common.json#/$defs/eventKind" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "startAt": { "$ref": "https://szu-calendar.local/schema/common.json#/$defs/dateTime" },
+    "endAt": { "$ref": "https://szu-calendar.local/schema/common.json#/$defs/dateTime" },
+    "link": { "$ref": "https://szu-calendar.local/schema/common.json#/$defs/url" },
+    "allDay": { "type": "boolean", "description": "true 时只看 startAt 的日期部分" },
+    "course": { "type": "string" },
+    "location": { "type": "string" },
+    "note": {
+      "type": "string",
+      "description": "自由文本。采集器约定：栏目｜发布｜摘要，或 截止：… ｜原话：…"
+    },
+    "scope": { "$ref": "https://szu-calendar.local/schema/common.json#/$defs/scope" },
+    "college": { "type": "string", "description": "scope=college 时必填，填学院全名" },
+    "grade": { "type": "string", "description": "scope=grade 时必填，如 2026 级" },
+    "ownerId": { "type": "string", "description": "创建者学号，仅用于 UI 判断，不是安全边界" },
+    "source": {
+      "type": "string",
+      "minLength": 1,
+      "description": "来源标识。已知值：board 公文通 / web 官网 / ehall 办事大厅 / gwt-sync 插件 / wechat 群聊 / paste 粘贴 / manual 手动。开放集合。"
+    },
+    "sourceUrl": {
+      "$ref": "https://szu-calendar.local/schema/common.json#/$defs/url",
+      "description": "去重键。同一通知的活动行与截止行共用 url，#ddl 后缀区分。"
+    },
+    "createdAt": { "$ref": "https://szu-calendar.local/schema/common.json#/$defs/dateTime" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "scope": { "const": "college" } }, "required": ["scope"] },
+      "then": { "required": ["college"] }
+    },
+    {
+      "if": { "properties": { "scope": { "const": "grade" } }, "required": ["scope"] },
+      "then": { "required": ["grade"] }
+    }
+  ]
+}
