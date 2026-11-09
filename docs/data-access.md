@@ -108,7 +108,7 @@
 | 要求 | 数据来源 | 存储 | 状态 |
 |---|---|---|---|
 | ① 未登录看公共信息（公文通 + 官网） | `collect-board.mjs`（要账号）+ `collect-web.mjs`（免登录） | 云库 `events`，`scope=school` | ✅ 已入库：board 582 / web 45 / 其他 9，共 636 行；其中未过期 179 行。匿名 key 实测可读 |
-| ② 登录后自动拿个人信息 | CAS → ehall `userInfo.json` + jwkw `currentUser.do` + 课表接口 | 姓名/学号/学院/专业/年级进 `szu_session` cookie；课表、**作业截止、签到**进 `localStorage` | ✅ 已实现，待本人真实账密实测 |
+| ② 登录后自动拿个人信息 | CAS → ehall `userInfo.json` + jwkw `currentUser.do` + 课表接口 | 姓名/学号/学院/年级进 `szu_session` cookie（**专业教务接口不提供，留空正常**）；课表、**作业截止、签到**进 `localStorage` | ✅ 2026-11-09 真实账号端到端跑通：登录、档案、课表 6 门/180 次、畅课 3 条待办 |
 | ③ 「我的」里导入微信记录 | 微信「复制消息」粘贴（主）/ 已导出的 `.json`·`.txt`（备），浏览器内规则解析 | `localStorage` | ✅ 已实现（`components/WeChatImporter.tsx` + `lib/wechat-paste.ts`），见 §3.6 |
 | 分层（非并列） | — | ①云库、②③本机 | ✅ 2026-11-09 收口：云库 `personal` 行已清零，`ddls`/`checkins` 已搬本机，云库只剩公共事件与画像 |
 

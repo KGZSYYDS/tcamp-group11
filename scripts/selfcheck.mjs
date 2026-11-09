@@ -290,12 +290,15 @@ async function main() {
   /* 3. 档案（来自登录响应，不额外请求） */
   const p = loginBody.profile || {};
   if (p.name || p.college) {
-    ok("档案", `${p.grade || "—"} · ${p.levelName || "—"} · ${p.major || "专业未取到"}`);
-    // 专业/班级来自教务单点，失败时登录不报错但字段为空，这里必须说清楚
+    ok("档案", `${p.grade || "—"} · ${p.levelName || "—"}${p.major ? ` · ${p.major}` : ""}`);
     if (!loginBody.jwkwOk) {
+      // 专业/班级来自教务，教务没连上时这两个字段一定为空
       console.log(
-        `      → 教务单点未成功，专业/班级取不到${loginBody.jwkwError ? `（${loginBody.jwkwError}）` : ""}；课表不受影响`
+        `      → 教务单点未成功${loginBody.jwkwError ? `（${loginBody.jwkwError}）` : ""}；课表不受影响`
       );
+    } else if (!p.major) {
+      // 教务接口本身就只给姓名/学号/学期/周次，别让使用者以为哪里坏了
+      console.log("      → 专业/班级教务接口不提供，留空正常；学院与年级过滤不受影响");
     }
   } else {
     bad("档案", "登录成功但档案为空", "学籍接口口径可能变了（userInfo.json），把上面消息发我。");
