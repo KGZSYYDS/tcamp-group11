@@ -127,7 +127,11 @@ export default function Dashboard() {
         </div>
       )}
 
-      {tab === "calendar" && <ReminderBar onOpen={() => setTab("ddl")} onCountChange={setReminderCount} />}
+      {tab === "calendar" && (
+        <div className="app-reminder-slot">
+          <ReminderBar onOpen={() => setTab("ddl")} onCountChange={setReminderCount} />
+        </div>
+      )}
 
       <div className="app-content" key={tab}>
         {tab === "calendar" && <CalendarPanel currentUserId={user?.studentId || ""} />}
