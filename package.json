@@ -16,7 +16,8 @@
     "meetings:all": "node scripts/collect-meetings.mjs --all-groups",
     "meetings:publish": "node scripts/collect-meetings.mjs --all-groups --publish",
     "ingest:notices": "node scripts/ingest-notices.mjs",
-    "test:deadline": "node scripts/test-deadline.mjs"
+    "test:deadline": "node scripts/test-deadline.mjs",
+    "test:parse-time": "node scripts/test-parse-time.mjs"
   },
   "dependencies": {
     "@tencent-ai/workbuddy-cloud-sdk": "dev",

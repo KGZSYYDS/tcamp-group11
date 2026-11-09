@@ -27,6 +27,7 @@
 import fs from "fs";
 import path from "path";
 import { extractDeadline, isActionableDeadline, isFacultyDeadline } from "../lib/deadline.mjs";
+import { pickEventTime } from "../lib/parse-time.mjs";
 
 const ENDPOINT = "https://szu-calendar.app.workbuddy.host";
 const KEY = "wbpk_WzXwYj6XGdnn7m7c2NTc2V_k6ZmPeTV5hMYlO7DXtHIUckhNgKMaVZy";
@@ -70,43 +71,17 @@ function classify(title, category) {
 
 // ---------- 时间提取 ----------
 
-function pad(n) {
-  return String(n).padStart(2, "0");
-}
-
 /**
- * 活动时间优先取正文里的「时间：…」，取不到退回发布日期。
- * 公文正文常见写法：2026年11月9日（一）10：00 / 11月9日 14:30
+ * 活动时间优先取正文里真正的「活动时刻」，取不到退回发布日期。
  *
- * 返回值多一个 found：区分「正文真的写了时间」和「只是拿发布日期兜底」。
+ * 一条公文里通常有多个日期（印发、文号、报名截止、活动），直接取第一个必然出错，
+ * 所以交给 lib/parse-time.mjs 按上下文打分择一。
+ *
+ * 返回值仍带 found：区分「正文真的写了时间」和「只是拿发布日期兜底」。
  * 后者不算事件时间——一条只有报名截止的通知，发布日期不是任何事发生的时刻。
  */
 function extractWhen(item) {
-  const text = item.content || "";
-  const pubDate = /^\d{4}-\d{2}-\d{2}$/.test(item.publishedAt || "")
-    ? item.publishedAt
-    : new Date().toISOString().slice(0, 10);
-
-  // 1) 带年份的完整日期 + 时间
-  let m = text.match(
-    /(20\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日[^\d]{0,12}(\d{1,2})\s*[:：]\s*(\d{2})/
-  );
-  if (m) {
-    return { date: `${m[1]}-${pad(m[2])}-${pad(m[3])}`, time: `${pad(m[4])}:${m[5]}`, found: true };
-  }
-
-  // 2) 只有月日 + 时间，年份取发布年
-  const year = pubDate.slice(0, 4);
-  m = text.match(/(\d{1,2})\s*月\s*(\d{1,2})\s*日[^\d]{0,12}(\d{1,2})\s*[:：]\s*(\d{2})/);
-  if (m) {
-    return { date: `${year}-${pad(m[1])}-${pad(m[2])}`, time: `${pad(m[3])}:${m[4]}`, found: true };
-  }
-
-  // 3) 只有日期
-  m = text.match(/(20\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
-  if (m) return { date: `${m[1]}-${pad(m[2])}-${pad(m[3])}`, time: null, found: true };
-
-  return { date: pubDate, time: null, found: false };
+  return pickEventTime(item.content || "", item.publishedAt);
 }
 
 /**
