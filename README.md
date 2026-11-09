@@ -43,13 +43,16 @@ start.bat|sh    一键启动（缺依赖时自动 npm install）
 
 不写长文档，直接给真跑出来的数据：
 
-- [`examples/README.md`](examples/README.md) —— 12 份真实 JSON 的对照表 + 三条硬规则 + 去重键
-- [`docs/schema/`](docs/schema/) —— 9 份 JSON Schema，同名 `.schema.json` 可直接校验
+- [`examples/README.md`](examples/README.md) —— **25 份真实 JSON**：7 类实体、4 个文件、10 个接口的请求/响应，全是实抓
+- [`docs/schema/`](docs/schema/) —— **12 份 JSON Schema**（draft 2020-12），同名 `.schema.json` 可直接校验
 
 ```bash
 pip install jsonschema
 python scripts/validate-contract.py    # 退出码 0 = 全部通过
 ```
+
+校验会拿**全量真数据**跑一遍：`data/board/notices-latest.json`（556 条）与
+`data/web/notices-web-latest.json`（40 条）逐条对 `notice.schema.json`。
 
 ## 浏览器插件
 

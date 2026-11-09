@@ -1,0 +1,34 @@
+{
+  "method": "GET",
+  "path": "/api/wechat/status",
+  "note": "真实响应（2026-11-09 实抓）。stage 是四档诊断：no-exe 没装工具 / no-data 工具在但找不到微信库 / no-key 库找到了但解不开（要用户重登微信） / ready 可用。accountHint 只露账号目录尾部 6 位。",
+  "response": {
+    "available": true,
+    "connected": true,
+    "version": "5.0.1 (6115746 2026-10-21 17:55Z)",
+    "accountHint": "2_8682",
+    "stage": "ready",
+    "exePath": "D:\\Tools\\WeFlow\\weflow-v5.0.1-windows-x64\\weflow.exe",
+    "wechatDirs": [
+      {
+        "dir": "D:\\xwechat_files",
+        "accounts": ["…9tk22_8682"],
+        "v4": true,
+        "active": true,
+        "from": "weflow"
+      }
+    ],
+    "configured": false
+  },
+  "response_not_installed": {
+    "available": false,
+    "connected": false,
+    "version": null,
+    "accountHint": null,
+    "stage": "no-exe",
+    "exePath": null,
+    "wechatDirs": [],
+    "configured": false,
+    "error": "这台机器上没找到 WeFlow"
+  }
+}

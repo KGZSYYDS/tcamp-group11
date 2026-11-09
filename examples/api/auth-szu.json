@@ -1,0 +1,98 @@
+{
+  "method": "POST",
+  "path": "/api/auth/szu",
+  "note": "真实账密登录（2026-11-09 实抓，已脱敏）。一次请求同时带回档案和课表。timetable.events 真实是 207 条，这里只留 2 条；完整形态见 ../files/timetable-2026-2027-1.json。",
+  "request": {
+    "studentId": "2024xxxxxx",
+    "password": "<统一认证密码>"
+  },
+  "response": {
+    "ok": true,
+    "user": {
+      "sub": "2024xxxxxx",
+      "name": "张三",
+      "college": "计算机与软件学院",
+      "major": "",
+      "grade": "2024 级",
+      "level": "undergraduate",
+      "iat": 1794231809,
+      "exp": 1794836609
+    },
+    "profile": {
+      "name": "张三",
+      "studentId": "2024xxxxxx",
+      "college": "计算机与软件学院",
+      "major": "",
+      "className": "",
+      "grade": "2024 级",
+      "level": "undergraduate",
+      "levelName": "学生",
+      "sex": "男"
+    },
+    "timetable": {
+      "format": "szu-calendar-timetable",
+      "version": 1,
+      "term": "2026-2027-1",
+      "termName": "2026-2027学年第一学期",
+      "week1Monday": "2026-08-31",
+      "currentWeek": 11,
+      "courses": [
+        "数据库系统",
+        "计算机图形学",
+        "智能网络与计算",
+        "计算机系统（3）-组成设计",
+        "人工智能课程实训",
+        "脑与认知科学",
+        "计算机视觉"
+      ],
+      "counts": { "courses": 7, "sessions": 207 },
+      "generatedAt": "2026-11-09T13:23:29.640Z",
+      "events": [
+        {
+          "kind": "other",
+          "title": "数据库系统",
+          "startAt": "2026-09-01T08:30:00",
+          "endAt": "2026-09-01T09:55:00",
+          "allDay": false,
+          "course": "数据库系统",
+          "location": "致理楼L1-503",
+          "teacher": "BASKER GEORGE",
+          "week": 1,
+          "periods": "1-2",
+          "jxbid": null
+        },
+        {
+          "kind": "other",
+          "title": "数据库系统",
+          "startAt": "2026-09-01T10:15:00",
+          "endAt": "2026-09-01T11:40:00",
+          "allDay": false,
+          "course": "数据库系统",
+          "location": "致腾楼240",
+          "teacher": "BASKER GEORGE",
+          "week": 1,
+          "periods": "3-4",
+          "jxbid": null
+        }
+      ],
+      "profile": {
+        "name": "张三",
+        "studentId": "2024xxxxxx",
+        "college": "计算机与软件学院",
+        "major": "",
+        "className": "",
+        "grade": "2024 级",
+        "level": "undergraduate",
+        "levelName": "学生",
+        "sex": "男"
+      }
+    },
+    "jwkwOk": true
+  },
+  "error_response": {
+    "ok": false,
+    "message": "学号或密码不对（与办事大厅同一个密码）",
+    "code": "BAD_CREDENTIALS",
+    "http_status": 401
+  }
+}

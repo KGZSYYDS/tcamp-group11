@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://szu-calendar.local/schema/notice.json",
+  "title": "Notice · 采集器产出的通知条目",
+  "description": "scripts/collect-board.mjs 与 scripts/collect-web.mjs 的输出元素，落成 data/board/notices-latest.json 与 data/web/notices-web-latest.json。两个源字段同构，web 多一个 channel。这是 ingest:notices 与 backfill:dates 的输入。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "url", "title", "category", "publishedAt"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "源站内的标识。board 是公文通详情页的数字 id（如 \"587193\"）；web 是「频道:/info/年/编号.htm」（如 \"sdxw:/info/1161/21177.htm\"）。跨源不唯一，去重要用 url。",
+      "minLength": 1
+    },
+    "url": {
+      "$ref": "https://szu-calendar.local/schema/common.json#/$defs/url",
+      "description": "详情页绝对地址。入库时写入 events.source_url，是去重键。"
+    },
+    "title": { "type": "string", "minLength": 1, "maxLength": 300 },
+    "category": {
+      "type": "string",
+      "description": "列表页的栏目名，中文原样。board 如「教务」「科研」；web 如「通知公告」「学术动态」「深大新闻」。"
+    },
+    "department": {
+      "type": ["string", "null"],
+      "description": "发文单位。board 取自列表页栏目或详情页落款；web 多为 null。"
+    },
+    "publishedAt": {
+      "$ref": "https://szu-calendar.local/schema/common.json#/$defs/dateOnly",
+      "description": "发布日，只到天。不是活动时间 —— 活动时间要从 content 里抽（lib/parse-time.mjs）。"
+    },
+    "channel": {
+      "type": "string",
+      "description": "仅 web 源有：tzgg=通知公告 xsdt=学术动态 sdxw=深大新闻。"
+    },
+    "content": {
+      "type": "string",
+      "description": "详情页正文纯文本。board 全量带；web 在详情页抓取失败时才缺。backfill 与截止抽取都依赖它，缺了就只能退回发布日。"
+    }
+  }
+}

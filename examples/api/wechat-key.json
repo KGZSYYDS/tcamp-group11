@@ -1,0 +1,43 @@
+{
+  "method": "GET / POST",
+  "path": "/api/wechat/key",
+  "note": "微信密钥任务。GET 看进度，POST 起后台任务（weflow key db --save --timeout 600）。必须让用户在微信里**退出重登**才拿得到新密钥，所以是「起任务 → 用户去操作 → 回来轮询」。WeFlow 输出可能含密钥，接口一个字都不返回。",
+  "get_response_idle": {
+    "job": null,
+    "status": {
+      "available": true,
+      "connected": true,
+      "version": "5.0.1 (6115746 2026-10-21 17:55Z)",
+      "accountHint": "2_8682",
+      "stage": "ready",
+      "exePath": "D:\\Tools\\WeFlow\\weflow-v5.0.1-windows-x64\\weflow.exe",
+      "wechatDirs": [],
+      "configured": false
+    }
+  },
+  "get_response_running": {
+    "job": {
+      "startedAt": 1794231600000,
+      "done": false,
+      "ok": false,
+      "message": "正在等待微信重新登录…"
+    }
+  },
+  "get_response_done": {
+    "job": {
+      "startedAt": 1794231600000,
+      "done": true,
+      "ok": true,
+      "message": "密钥已更新"
+    }
+  },
+  "post_response_ok": {
+    "started": true,
+    "message": "已开始等待，请在微信里退出登录再重新登录"
+  },
+  "post_response_busy": {
+    "started": true,
+    "message": "已经在等了，别重复点"
+  },
+  "note_on_started": "started=true 有两种含义：新起的任务，或已有任务在跑（看 message）。started=false 才是真起不来（没装 WeFlow），此时 HTTP 503。"
+}

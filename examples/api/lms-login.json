@@ -1,0 +1,20 @@
+{
+  "method": "POST",
+  "path": "/api/lms/login",
+  "note": "走完三跳 CAS（lms/login → identity cas → broker → authserver）。密码错返回 401，不是 200 —— 这是最容易接错的一点。DELETE 同一路径清会话。",
+  "request": {
+    "username": "2024xxxxxx",
+    "password": "<统一认证密码>"
+  },
+  "response_ok": {
+    "ok": true,
+    "studentId": "2024xxxxxx"
+  },
+  "response_bad_password": {
+    "http_status": 401,
+    "error": "学号或密码不对（与办事大厅同一个密码）"
+  },
+  "response_cleanup": {
+    "ok": true
+  }
+}
