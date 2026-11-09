@@ -1,191 +1,143 @@
 "use client";
 
 import { useState } from "react";
-import { cloud } from "@/lib/cloud";
+import { importFile } from "@/lib/local-store";
 
-type Pending = {
-  account: string;
-  verificationId: string;
-  isExistingUser: boolean;
-};
+interface Props {
+  /** 登录成功、课表已写进本机之后通知外层刷新 */
+  onLoggedIn: () => void;
+}
 
-export default function LoginPanel() {
-  const [method, setMethod] = useState<"phone" | "email">("phone");
-  const [account, setAccount] = useState("");
-  const [code, setCode] = useState("");
-  const [pending, setPending] = useState<Pending | null>(null);
-  const [sending, setSending] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+/**
+ * 统一认证登录卡（内嵌，不是整页门禁）。
+ *
+ * 登录是可选项：不登录也能看全校日历、截止日期、粘贴导入。
+ * 登录只多一件事 —— 自动把课表同步到本机。
+ *
+ * 为什么不是手机号：手机号证明「你是某个账号的主人」，证明不了「你是在校学生」，
+ * 也换不出课表。统一认证才是学校认的凭证。
+ *
+ * 密码的去向：POST 到本机的 /api/auth/szu，由本机 Node 进程加密后提交给
+ * authserver.szu.edu.cn。服务端只用它换一次 ticket，不写文件、不进云库。
+ */
+export default function LoginPanel({ onLoggedIn }: Props) {
+  const [studentId, setStudentId] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [step, setStep] = useState("");
   const [error, setError] = useState("");
-  const [accountError, setAccountError] = useState("");
-
-  function validate(value: string) {
-    if (method === "phone") return /^1\d{10}$/.test(value);
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-  }
-
-  async function sendCode() {
-    if (!validate(account)) {
-      setAccountError(
-        method === "phone" ? "请输入正确的 11 位手机号" : "请输入正确的邮箱地址"
-      );
-      return;
-    }
-    setAccountError("");
-    setError("");
-    setSending(true);
-    const payload = method === "phone" ? { phone: account } : { email: account };
-    const sent = await cloud.auth.sendOtp(payload);
-    setSending(false);
-    if (sent.error) {
-      setError(sent.error.message);
-      return;
-    }
-    setPending({
-      account,
-      verificationId: sent.data.verificationId,
-      isExistingUser: sent.data.isExistingUser,
-    });
-  }
+  const [hint, setHint] = useState("");
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!pending || pending.account !== account) {
-      setError("请先获取当前账号的验证码");
-      return;
-    }
-    if (!code.trim()) {
-      setError("请输入验证码");
-      return;
-    }
     setError("");
-    setSubmitting(true);
-    const base = {
-      verificationId: pending.verificationId,
-      isExistingUser: pending.isExistingUser,
-      token: code.trim(),
-    };
-    const payload =
-      method === "phone" ? { ...base, phone: account } : { ...base, email: account };
-    const completed = await cloud.auth.verifyOtp(payload);
-    setSubmitting(false);
-    if (completed.error) {
-      setError(completed.error.message);
+    setHint("");
+
+    if (!/^\d{6,16}$/.test(studentId.trim())) {
+      setError("学号是 6–16 位数字");
       return;
     }
-    setPending(null);
+    if (!password) {
+      setError("请输入统一认证密码");
+      return;
+    }
+
+    setBusy(true);
+    setStep("正在验证统一认证…");
+
+    // 课表要跑好几个接口，给用户一个「还在动」的反馈
+    const slow = setTimeout(() => setStep("认证已通过，正在读取课表…"), 3500);
+
+    try {
+      const res = await fetch("/api/auth/szu", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ studentId: studentId.trim(), password }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || !data.ok) {
+        setError(data.message || `登录失败（HTTP ${res.status}）`);
+        if (data.code === "NEED_CAPTCHA" || data.code === "RATE_LIMITED") {
+          setHint("遇到这种情况不要反复点登录 —— 连续失败只会让风控窗口更长。");
+        }
+        return;
+      }
+
+      // 课表存本机浏览器，登录完立刻能看；服务端不留个人数据
+      if (data.timetable) {
+        try {
+          importFile(JSON.stringify(data.timetable), "登录时同步");
+        } catch (e) {
+          setHint(e instanceof Error ? `课表已取到但写入本机失败：${e.message}` : "");
+        }
+      } else if (data.warning) {
+        setHint(`课表这次没取到：${data.warning}。不影响使用，可以稍后再同步一次。`);
+      }
+
+      setPassword("");
+      onLoggedIn();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "网络异常，确认本机服务还在跑");
+    } finally {
+      clearTimeout(slow);
+      setBusy(false);
+      setStep("");
+    }
   }
 
   return (
-    <main className="login-shell mx-auto flex min-h-screen max-w-md flex-col justify-center px-4 py-6">
-      <div className="login-brand mb-6 text-center">
-        <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-600 shadow-lg shadow-indigo-200">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="4" width="18" height="18" rx="3" />
-            <path d="M16 2v4M8 2v4M3 10h18" />
-            <path d="M9 16l2 2 4-4" />
-          </svg>
-        </div>
-        <h1 className="text-3xl font-bold tracking-tight text-indigo-600">深大日历</h1>
-        <p className="mt-2 text-sm text-gray-500">
-          作业、签到、考试、体测——与你有关的每一天
-        </p>
-        <div className="mt-4 flex justify-center gap-4 text-xs text-gray-400">
-          <span>公共事件共享</span>
-          <span>·</span>
-          <span>作业智能同步</span>
-          <span>·</span>
-          <span>个人相关性过滤</span>
-        </div>
-      </div>
-      <div className="rounded-2xl bg-white p-6 shadow-sm">
-        <div className="mb-5 grid grid-cols-2 gap-2 rounded-lg bg-gray-100 p-1">
-          {(["phone", "email"] as const).map((m) => (
-            <button
-              key={m}
-              type="button"
-              aria-pressed={method === m}
-              onClick={() => {
-                setMethod(m);
-                setAccount("");
-                setCode("");
-                setPending(null);
-                setError("");
-                setAccountError("");
-              }}
-              className={`rounded-md py-1.5 text-sm ${
-                method === m ? "bg-white font-medium text-indigo-600 shadow-sm" : "text-gray-500"
-              }`}
-            >
-              {m === "phone" ? "手机号登录" : "邮箱登录"}
-            </button>
-          ))}
-        </div>
+    <div>
+      <h2 className="mb-1 font-medium">登录（可选）</h2>
+      <p className="mb-4 text-xs leading-relaxed text-gray-400">
+        不登录也能用全部功能。登录后会自动把本学期课表同步到这台设备，
+        不用再手动导入文件。
+      </p>
 
-        <form onSubmit={submit}>
-          <label className="block text-sm">
-            <span className="mb-1 block text-gray-600">
-              {method === "phone" ? "手机号" : "邮箱"}
-            </span>
-            <input
-              value={account}
-              onChange={(e) => {
-                setAccount(e.target.value.trim());
-                setAccountError("");
-              }}
-              placeholder={method === "phone" ? "11 位手机号" : "如 2026152055@mail.szu.edu.cn"}
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 outline-none focus:border-indigo-400"
-            />
-            {accountError && <span className="mt-1 block text-xs text-red-500">{accountError}</span>}
-          </label>
+      <form onSubmit={submit}>
+        <label className="block text-sm">
+          <span className="mb-1 block text-gray-600">学号</span>
+          <input
+            value={studentId}
+            onChange={(e) => setStudentId(e.target.value.replace(/\s/g, ""))}
+            inputMode="numeric"
+            autoComplete="username"
+            placeholder="如 2024xxxxxx"
+            className="w-full rounded-lg border border-gray-200 px-3 py-2 outline-none focus:border-indigo-400"
+          />
+        </label>
 
-          <div className="mt-3 flex gap-2">
-            <input
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              placeholder="验证码"
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 outline-none focus:border-indigo-400"
-            />
-            <button
-              type="button"
-              onClick={sendCode}
-              disabled={sending}
-              className="shrink-0 rounded-lg border border-indigo-200 px-3 py-2 text-sm text-indigo-600 hover:bg-indigo-50 disabled:opacity-50"
-            >
-              {sending ? "发送中…" : pending ? "重新获取" : "获取验证码"}
-            </button>
-          </div>
-          {pending && (
-            <p className="mt-2 text-xs text-emerald-600">
-              验证码已发送，请查收{method === "phone" ? "短信" : "邮件"}后输入
-            </p>
-          )}
-          {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
+        <label className="mt-3 block text-sm">
+          <span className="mb-1 block text-gray-600">统一认证密码</span>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+            placeholder="authserver.szu.edu.cn 的密码"
+            className="w-full rounded-lg border border-gray-200 px-3 py-2 outline-none focus:border-indigo-400"
+          />
+        </label>
 
-          <button
-            type="submit"
-            disabled={submitting}
-            className="mt-5 w-full rounded-lg bg-indigo-600 py-2.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-          >
-            {submitting ? "登录中…" : "登录 / 注册"}
-          </button>
-        </form>
-        <p className="mt-4 text-center text-xs text-gray-400">
-          新用户验证后自动注册，无需设置密码。你的 DDL、签到等个人数据仅自己可见。
-        </p>
-      </div>
-      <div className="mt-4 rounded-2xl bg-indigo-50/60 p-4 text-center">
-        <p className="text-xs text-gray-500">
-          不装插件也能用：公共事件（体测、活动、答辩）由采集员共享，登录即见。
-        </p>
-        <a
-          href="/szu-calendar-sync.zip"
-          download
-          className="mt-2 inline-block text-sm font-medium text-indigo-600 hover:underline"
+        {error && <p className="mt-3 text-xs text-red-500">{error}</p>}
+        {hint && <p className="mt-2 text-xs text-amber-600">{hint}</p>}
+
+        <button
+          type="submit"
+          disabled={busy}
+          className="mt-4 w-full rounded-lg bg-indigo-600 py-2.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
         >
-          下载同步助手插件 → 自动同步畅课作业、公文通通知
-        </a>
-      </div>
-    </main>
+          {busy ? step || "登录中…" : "登录并同步课表"}
+        </button>
+      </form>
+
+      <p className="mt-3 text-[11px] leading-relaxed text-gray-400">
+        密码只在本机服务端用于向学校换一次登录票据，不写文件、不进云端数据库。
+        登录后本机保留 7 天免登录；课表存在这台设备的浏览器里。
+      </p>
+      <p className="mt-2 text-[11px] leading-relaxed text-gray-400">
+        若提示「需要图形验证码」：先用浏览器打开 authserver.szu.edu.cn 手动登录一次再回来。
+      </p>
+    </div>
   );
 }

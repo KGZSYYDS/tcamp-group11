@@ -5,8 +5,19 @@ out/
 next-env.d.ts
 *.tsbuildinfo
 
-# 本地个人数据
-data/
+# 本地个人数据（微信原始聊天、导出结果、会话 cookie 等一律不提交）
+data/*
+# 例外 1：群订阅的样例配置，供他人照抄
+!data/meeting-sources.example.json
+# 例外 2：公文通 / 官网的公开通知快照。内容全是公开发布的通知，
+# 不含任何个人信息，是对接 ingest 时唯一能看到全量真实结构的数据。
+# 「先放行目录、再放行单个文件」是必须的：目录被忽略后，git 不会进去看文件级例外。
+!data/board/
+!data/web/
+data/board/*
+data/web/*
+!data/board/notices-latest.json
+!data/web/notices-web-latest.json
 
 # 环境变量与密钥
 .env
@@ -25,3 +36,5 @@ Thumbs.db
 
 # Local browser audit artifacts
 .playwright-cli/
+# 本地工作区数据（不与协作者共享）
+.workbuddy/

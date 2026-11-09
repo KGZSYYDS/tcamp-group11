@@ -1,0 +1,28 @@
+{
+  "method": "POST",
+  "path": "/api/board/ingest",
+  "note": "把采集器的通知列表推进云库。接受 { items: [...] } 或裸数组两种形态。按 source_url 去重，scope 固定 school。**注意：items 的每个元素就是 notice.schema.json 的形状**，即 data/board/notices-latest.json 的数组元素。",
+  "schema": {
+    "request_items": "../../docs/schema/notice.schema.json"
+  },
+  "request": {
+    "items": [
+      {
+        "id": "587193",
+        "url": "https://www1.szu.edu.cn/board/view.asp?id=587193",
+        "title": "2026年下半年药学专业学位硕士开题报告（二）",
+        "category": "教务",
+        "department": "医学部",
+        "publishedAt": "2026-11-09",
+        "content": "日 期：2026年11月11日\n时 间：14：00 - 17：30\n地 点：深圳大学丽湖校区科研楼东塔209会议室\n……"
+      }
+    ]
+  },
+  "response": {
+    "added": 1,
+    "skipped": 0,
+    "failed": 0,
+    "errors": []
+  },
+  "note_on_skipped": "skipped 包含两种情况：item 缺 url/title，或该 url 已经入过库。errors 最多回 10 条。"
+}

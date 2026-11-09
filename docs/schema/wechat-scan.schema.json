@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://szu-calendar.local/schema/wechat-scan.json",
+  "title": "POST /api/wechat/scan 的请求与响应",
+  "description": "本机微信一键扫描。请求只要群 id + 群名 + 天数；响应里的 items 就是 PersonalItem[]（见 personal-item.schema.json）。原始聊天正文一律不返回、不落库。",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["groups"],
+      "properties": {
+        "groups": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 12,
+          "description": "最多 12 个群（服务端硬限制 MAX_GROUPS=12）",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "name"],
+            "properties": {
+              "id": { "type": "string", "description": "形如 49160223088@chatroom" },
+              "name": {
+                "type": "string",
+                "description": "群名。抽取结果里的「来自群：X」直接用它，服务端不改文件名"
+              }
+            }
+          }
+        },
+        "days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30,
+          "default": 7,
+          "description": "往回扫几天，服务端 clamp 到 1–30"
+        }
+      }
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["items", "stats", "range", "scanned", "hinted"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": { "$ref": "https://szu-calendar.local/schema/personal-item.json" },
+          "description": "去重后的事项。已按 (startAt 日期, kind, title) 归并过。"
+        },
+        "stats": {
+          "type": "array",
+          "description": "每个群一行，包含失败信息。空群不报错，error 写「这段时间没消息」。",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "messages", "hinted", "items"],
+            "properties": {
+              "name": { "type": "string" },
+              "messages": { "type": "integer", "minimum": 0, "description": "该群区间内的文本消息数" },
+              "hinted": { "type": "integer", "minimum": 0, "description": "含时间表达、进入抽取的消息数" },
+              "items": { "type": "integer", "minimum": 0 },
+              "error": { "type": "string" }
+            }
+          }
+        },
+        "range": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["start", "end", "days"],
+          "properties": {
+            "start": { "$ref": "https://szu-calendar.local/schema/common.json#/$defs/dateOnly" },
+            "end": { "$ref": "https://szu-calendar.local/schema/common.json#/$defs/dateOnly" },
+            "days": { "type": "integer" }
+          }
+        },
+        "scanned": { "type": "integer", "minimum": 0, "description": "所有群的文本消息总数" },
+        "hinted": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

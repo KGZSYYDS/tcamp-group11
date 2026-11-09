@@ -5,7 +5,23 @@
   "scripts": {
     "dev": "node node_modules/next/dist/bin/next dev",
     "build": "node node_modules/next/dist/bin/next build",
-    "start": "node node_modules/next/dist/bin/next start"
+    "start": "node node_modules/next/dist/bin/next start",
+    "collect:profile": "node scripts/collect-profile.mjs",
+    "collect:board": "node scripts/collect-board.mjs",
+    "collect:web": "node scripts/collect-web.mjs",
+    "collect:timetable": "node scripts/collect-timetable.mjs",
+    "collect:meetings": "node scripts/collect-meetings.mjs",
+    "collect:all": "node scripts/collect-profile.mjs && node scripts/collect-timetable.mjs",
+    "meetings:list": "node scripts/collect-meetings.mjs --list",
+    "meetings:all": "node scripts/collect-meetings.mjs --all-groups",
+    "meetings:publish": "node scripts/collect-meetings.mjs --all-groups --publish",
+    "ingest:notices": "node scripts/ingest-notices.mjs",
+    "backfill:dates": "node scripts/backfill-dates.mjs",
+    "selfcheck": "node scripts/selfcheck.mjs",
+    "test": "node scripts/test-deadline.mjs && node scripts/test-parse-time.mjs && node scripts/test-reminders.mjs",
+    "test:deadline": "node scripts/test-deadline.mjs",
+    "test:parse-time": "node scripts/test-parse-time.mjs",
+    "test:reminders": "node scripts/test-reminders.mjs"
   },
   "dependencies": {
     "@fontsource-variable/manrope": "^5.3.0",

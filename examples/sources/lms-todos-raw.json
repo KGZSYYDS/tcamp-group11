@@ -1,0 +1,30 @@
+{
+  "todo_list": [
+    {
+      "course_code": "202620271150061000306",
+      "course_id": 31761,
+      "course_name": "计算机图形学",
+      "course_type": 1,
+      "end_time": "2026-11-22T15:59:00Z",
+      "id": 258414,
+      "is_locked": false,
+      "is_student": true,
+      "prerequisites": [],
+      "title": "（需网上提交）11月04日——实验三 光照与阴影",
+      "type": "homework"
+    },
+    {
+      "course_code": "202620271150061000309",
+      "course_id": 31786,
+      "course_name": "计算机系统（3）-组成设计",
+      "course_type": 1,
+      "end_time": "2026-11-30T15:59:00Z",
+      "id": 235679,
+      "is_locked": false,
+      "is_student": true,
+      "prerequisites": [],
+      "title": "实验三",
+      "type": "homework"
+    }
+  ]
+}

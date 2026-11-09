@@ -1,0 +1,49 @@
+{
+  "method": "GET / POST",
+  "path": "/api/wechat/config",
+  "note": "陌生电脑上的「它到底装在哪」。GET 扫磁盘列候选；POST 存用户确认的路径。POST 时给 wechatDir 会先用 WeFlow 的 db scan 真验证一遍，不通过直接 400 —— 因为塞进配置后后面只会报「打不开」，用户分不清是路径错还是密钥过期。",
+  "get_response": {
+    "candidates": [
+      {
+        "exe": "D:\\Tools\\WeFlow\\weflow-v5.0.1-windows-x64\\weflow.exe",
+        "from": "common"
+      }
+    ],
+    "wechatDirs": [
+      {
+        "dir": "D:\\xwechat_files",
+        "accounts": ["…9tk22_8682"],
+        "v4": true,
+        "active": true,
+        "from": "weflow"
+      }
+    ],
+    "config": {
+      "exePath": "D:\\Tools\\WeFlow\\weflow-v5.0.1-windows-x64\\weflow.exe",
+      "updatedAt": "2026-11-09T13:00:00.000Z"
+    }
+  },
+  "post_request": {
+    "exePath": "D:\\Tools\\WeFlow\\weflow-v5.0.1-windows-x64\\weflow.exe",
+    "wechatDir": "D:\\xwechat_files"
+  },
+  "post_response_ok": {
+    "ok": true,
+    "applied": { "accounts": 1, "wxid": "wxid_xxxx" },
+    "status": {
+      "available": true,
+      "connected": true,
+      "version": "5.0.1",
+      "accountHint": "2_8682",
+      "stage": "ready",
+      "exePath": "D:\\Tools\\WeFlow\\weflow-v5.0.1-windows-x64\\weflow.exe",
+      "wechatDirs": [],
+      "configured": true
+    }
+  },
+  "post_error_examples": [
+    { "http_status": 400, "error": "这个路径不存在：D:\\nope\\weflow.exe" },
+    { "http_status": 400, "error": "请选 weflow.exe 或 weflow.cmd（不是它所在的文件夹）" },
+    { "http_status": 400, "error": "没有要保存的内容" }
+  ]
+}

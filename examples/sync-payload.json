@@ -1,0 +1,25 @@
+{
+  "source": "szu-cal-extension",
+  "type": "sync",
+  "payload": {
+    "ddls": [
+      {
+        "course": "计算机视觉",
+        "title": "实验4：目标检测模型的设计和实现",
+        "dueAt": "2026-11-29T15:59:00.000Z",
+        "url": "https://lms.szu.edu.cn/course/31837/learning-activity#/material/261176",
+        "note": "畅课作业"
+      }
+    ],
+    "courses": ["计算机视觉", "计算机图形学", "脑与认知科学"],
+    "notices": [
+      {
+        "title": "关于开展深圳大学2026年度消防宣传体验活动的通知",
+        "content": "活动时间：2026年11月9日8:00—18:00；地点：粤海校区汇文楼前广场。",
+        "department": "安全保卫部",
+        "publishedAt": "2026-11-08",
+        "url": "https://www1.szu.edu.cn/board/view.asp?id=587145"
+      }
+    ]
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "method": "GET",
+  "path": "/api/auth/session",
+  "note": "只读签名 cookie，刷新页面不会再去问学校系统。DELETE 同一路径 = 退出（清 cookie，返回 { ok: true }）。",
+  "response_logged_in": {
+    "user": {
+      "studentId": "2024xxxxxx",
+      "name": "张三",
+      "college": "计算机与软件学院",
+      "major": "",
+      "grade": "2024 级",
+      "level": "undergraduate",
+      "expiresAt": "2026-11-16T13:23:31.000Z"
+    }
+  },
+  "response_logged_out": {
+    "user": null
+  }
+}

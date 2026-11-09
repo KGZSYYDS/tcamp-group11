@@ -1,0 +1,28 @@
+[
+  {
+    "id": "6",
+    "kind": "activity",
+    "title": "2026年纳米流体学与凝聚态物质国际研讨会",
+    "startAt": "2026-10-23T09:00:00+08:00",
+    "endAt": "2026-10-25T23:59:00+08:00",
+    "allDay": true,
+    "location": "深圳大学",
+    "scope": "school",
+    "ownerId": "anon",
+    "source": "gwt-sync",
+    "createdAt": "2026-11-07T20:06:25.290615+08:00"
+  },
+  {
+    "id": "5",
+    "kind": "other",
+    "title": "医学部公开示范课：超声医学总论",
+    "startAt": "2026-11-09T08:30:00+08:00",
+    "allDay": false,
+    "location": "丽湖校区四方楼西406",
+    "scope": "college",
+    "college": "医学部",
+    "ownerId": "anon",
+    "source": "gwt-sync",
+    "createdAt": "2026-11-07T19:57:37.645728+08:00"
+  }
+]

@@ -1,0 +1,13 @@
+{
+  "method": "GET",
+  "path": "/api/lms/status",
+  "note": "ageDays = 会话已存天数，0 = 今天登录。未登录时 loggedIn=false、ageDays=null。",
+  "response_logged_in": {
+    "loggedIn": true,
+    "ageDays": 0
+  },
+  "response_logged_out": {
+    "loggedIn": false,
+    "ageDays": null
+  }
+}

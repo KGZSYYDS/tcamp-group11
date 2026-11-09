@@ -1,0 +1,23 @@
+{
+  "method": "GET",
+  "path": "/api/wechat/groups",
+  "note": "真实响应（2026-11-09 实抓，本机 227 个群，这里只留前 8 条）。score 只用于排序和前端默认勾选，不影响能不能选。",
+  "response": {
+    "groups": [
+      { "id": "50044092648@chatroom", "name": "（禁言）计软2025年转专业通知群", "score": 10 },
+      { "id": "47909337671@chatroom", "name": "图形学课班级群2026", "score": 8 },
+      { "id": "49606581029@chatroom", "name": "2024程序设计基础课程群", "score": 6 },
+      { "id": "47406491820@chatroom", "name": "2024深圳大学转专业咨询群（计软）", "score": 6 },
+      { "id": "47472909826@chatroom", "name": "2025程序设计综合实训课程群", "score": 6 },
+      { "id": "50007898766@chatroom", "name": "2025数据结构课程群", "score": 6 },
+      { "id": "44217659040@chatroom", "name": "2026《智能网络与计算》课程群", "score": 6 },
+      { "id": "50379502186@chatroom", "name": "2026Python程序设计课程群", "score": 6 }
+    ],
+    "total": 227
+  },
+  "note_on_total": "total 是真实群数 227；上面 groups 只截了 8 条用于演示，真实响应是全量返回。",
+  "error_response": {
+    "http_status": 503,
+    "error": "这台机器上没找到 WeFlow"
+  }
+}

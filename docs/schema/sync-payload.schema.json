@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://szu-calendar.local/schema/sync-payload.json",
+  "title": "SyncPayload · 浏览器扩展 → 网页（window.postMessage）",
+  "description": "扩展用 window.postMessage 投递到页面，页面校验 source/type 后由 SyncReceiver 接收。origin 必须与页面同源，否则丢弃。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["source", "type", "payload"],
+  "properties": {
+    "source": { "const": "szu-cal-extension" },
+    "type": { "const": "sync" },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ddls", "courses"],
+      "properties": {
+        "ddls": {
+          "type": "array",
+          "maxItems": 500,
+          "items": { "$ref": "https://szu-calendar.local/schema/ddl-input.json" }
+        },
+        "courses": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "课程名，会合并进云端个人画像 profiles.courses"
+        },
+        "notices": {
+          "type": "array",
+          "maxItems": 50,
+          "description": "公文通通知，交给用户逐条「AI 解析 → 保存为公共事件」。不进本机库。",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["title", "content"],
+            "properties": {
+              "title": { "type": "string", "minLength": 1 },
+              "content": { "type": "string", "minLength": 1 },
+              "department": { "type": "string" },
+              "publishedAt": { "type": "string" },
+              "url": { "$ref": "https://szu-calendar.local/schema/common.json#/$defs/url" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

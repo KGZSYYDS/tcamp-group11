@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://szu-calendar.local/schema/profile.json",
+  "title": "Profile · 个人画像",
+  "description": "登录统一认证后从学籍接口取回的画像，用于公共事件的相关性过滤。前端存本机，也随课表文件一起带走（timetable-file 的 profile 字段就是它）。不含任何凭据。",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "name": { "type": "string", "description": "真实姓名" },
+    "studentId": {
+      "type": "string",
+      "pattern": "^\\d{6,16}$",
+      "description": "学号。也是畅课登录失败时 studentId 为空的兜底来源。"
+    },
+    "college": { "type": "string", "description": "学院，如「计算机与软件学院」" },
+    "major": {
+      "type": "string",
+      "description": "专业。**实测学籍接口当前返回空串**（2026-11-09），别把它当必有值做校验。"
+    },
+    "className": {
+      "type": "string",
+      "description": "行政班。同样是空串，待查。"
+    },
+    "grade": { "type": "string", "description": "年级，形如「2024 级」（中间有空格，别用 parseInt）" },
+    "level": {
+      "type": "string",
+      "description": "培养层次：undergraduate / postgraduate / doctoral。云库 events.scope 也用这套值。"
+    },
+    "levelName": { "type": "string", "description": "层次中文名，如「学生」「本科生」" },
+    "sex": { "type": "string" },
+    "courses": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "选中的课程名。注意：Profile 类型里有这个字段，但登录接口返回的 profile 里没有 —— 课程在 timetable.courses 里。"
+    }
+  }
+}

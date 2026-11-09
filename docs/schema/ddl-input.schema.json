@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://szu-calendar.local/schema/ddl-input.json",
+  "title": "DdlInput · 导入用的截止条目（无 id / 无状态）",
+  "description": "批量导入认 course / title / dueAt / url / note 五个字段（url、note 可省）。业务主键是 course + title：已存在则更新 dueAt/url/note，不动 done 状态。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["course", "title", "dueAt"],
+  "properties": {
+    "course": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "dueAt": { "$ref": "https://szu-calendar.local/schema/common.json#/$defs/dateTime" },
+    "url": { "$ref": "https://szu-calendar.local/schema/common.json#/$defs/url" },
+    "note": { "type": "string", "maxLength": 500 },
+    "source": {
+      "type": "string",
+      "minLength": 1,
+      "description": "可选。批量导入的接口层会统一覆盖成通道标识，这里填了也会被改"
+    }
+  }
+}

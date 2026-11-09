@@ -1,13 +1,5 @@
 import { cloud } from "./cloud";
-import type {
-  CalEvent,
-  CalEventInput,
-  Checkin,
-  CheckinInput,
-  Ddl,
-  DdlInput,
-  Profile,
-} from "./types";
+import type { CalEvent, CalEventInput, Profile } from "./types";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -23,111 +15,24 @@ function assertAffected(data: any[] | null) {
   }
 }
 
-// ---------- DDL ----------
-
-export async function listDdls(): Promise<Ddl[]> {
-  const rows = unwrap(
-    await cloud.database.from("ddls").select("*").order("due_at", { ascending: true })
-  ) as any[];
-  return rows.map((r) => ({
-    id: String(r.id),
-    course: r.course,
-    title: r.title,
-    dueAt: r.due_at,
-    url: r.url ?? undefined,
-    note: r.note ?? undefined,
-    status: r.status,
-    source: r.source,
-    createdAt: r.created_at,
-  }));
-}
-
-export async function createDdl(input: DdlInput) {
-  const { data, error } = await cloud.database
-    .from("ddls")
-    .insert({
-      course: input.course.trim(),
-      title: input.title.trim(),
-      due_at: new Date(input.dueAt).toISOString(),
-      url: input.url?.trim() || null,
-      note: input.note?.trim() || null,
-      source: input.source || "manual",
-    } as any)
-    .select();
-  if (error) throw new Error(error.message);
-  assertAffected(data);
-}
-
-export async function setDdlStatus(id: string, status: "pending" | "done") {
-  const { data, error } = await cloud.database
-    .from("ddls")
-    .update({ status } as never)
-    .eq("id", Number(id))
-    .select();
-  if (error) throw new Error(error.message);
-  assertAffected(data);
-}
-
-export async function deleteDdl(id: string) {
-  const { data, error } = await cloud.database
-    .from("ddls")
-    .delete()
-    .eq("id", Number(id))
-    .select();
-  if (error) throw new Error(error.message);
-  assertAffected(data);
-}
-
-// ---------- 签到 ----------
-
-export async function listCheckins(): Promise<Checkin[]> {
-  const rows = unwrap(
-    await cloud.database
-      .from("checkins")
-      .select("*")
-      .order("occurred_at", { ascending: false })
-  ) as any[];
-  return rows.map((r) => ({
-    id: String(r.id),
-    course: r.course,
-    teacher: r.teacher ?? undefined,
-    occurredAt: r.occurred_at,
-    note: r.note ?? undefined,
-    source: r.source,
-    createdAt: r.created_at,
-  }));
-}
-
-export async function createCheckin(input: CheckinInput) {
-  const { data, error } = await cloud.database
-    .from("checkins")
-    .insert({
-      course: input.course.trim(),
-      teacher: input.teacher?.trim() || null,
-      occurred_at: new Date(input.occurredAt).toISOString(),
-      note: input.note?.trim() || null,
-      source: input.source || "manual",
-    } as any)
-    .select();
-  if (error) throw new Error(error.message);
-  assertAffected(data);
-}
-
-export async function deleteCheckin(id: string) {
-  const { data, error } = await cloud.database
-    .from("checkins")
-    .delete()
-    .eq("id", Number(id))
-    .select();
-  if (error) throw new Error(error.message);
-  assertAffected(data);
-}
+// ---------- 说明：ddls / checkins 已搬离云库 ----------
+//
+// 作业截止与签到记录属于「我的」这一层（见 lib/local-store.ts），
+// 不再有云端读写函数。云库只保留公共事件（events）与个人画像（profiles）。
 
 // ---------- 日历事件 ----------
 
+/**
+ * 只取公共事件。personal 行一律在服务端过滤掉，不下发到浏览器——
+ * 个人数据本来就不该进这张表，这里是不让历史脏数据继续外泄的第二道闸。
+ */
 export async function listEvents(): Promise<CalEvent[]> {
   const rows = unwrap(
-    await cloud.database.from("events").select("*").order("start_at", { ascending: true })
+    await cloud.database
+      .from("events")
+      .select("*")
+      .neq("scope", "personal")
+      .order("start_at", { ascending: true })
   ) as any[];
   return rows.map((r) => ({
     id: String(r.id),
@@ -183,6 +88,17 @@ export async function deleteEvent(id: string) {
   assertAffected(data);
 }
 
+/**
+ * 课表不再走云端认领。
+ *
+ * 原先的做法是：采集器以 anon 身份把课表写进公开的 events 表，再用学号哈希
+ * 把行标记归属，用户填学号「认领」。这个设计有个绕不开的问题——学号是可枚举的
+ * 数字串，谁先认领算谁的，而且哈希本身挡不住反推。
+ *
+ * 现在课表和群聊待办都只存在浏览器本地（lib/local-store.ts），云端只放公共数据，
+ * 归属由「谁的浏览器就是谁的」天然保证，不需要任何归属字段。
+ */
+
 /** 公共事件按来源链接查重：同一通知任何人采集过就不再重复入库 */
 export async function eventExistsBySourceUrl(url: string): Promise<boolean> {
   if (!url) return false;
@@ -231,37 +147,7 @@ export async function saveProfile(p: Profile) {
 }
 
 // ---------- 同步导入（浏览器插件 / 采集器） ----------
-
-/** 按 课程+标题 去重导入 DDL：已存在且截止时间一致则跳过，不一致则更新时间 */
-export async function importDdls(inputs: DdlInput[]) {
-  const existing = await listDdls();
-  let added = 0;
-  let updated = 0;
-  let skipped = 0;
-  for (const input of inputs) {
-    const dup = existing.find(
-      (d) => d.course === input.course && d.title === input.title
-    );
-    if (dup) {
-      const sameTime =
-        new Date(dup.dueAt).getTime() === new Date(input.dueAt).getTime();
-      if (sameTime) {
-        skipped++;
-      } else {
-        const { error } = await cloud.database
-          .from("ddls")
-          .update({ due_at: new Date(input.dueAt).toISOString() } as never)
-          .eq("id", Number(dup.id));
-        if (error) throw new Error(error.message);
-        updated++;
-      }
-    } else {
-      await createDdl({ ...input, source: input.source || "lms-sync" });
-      added++;
-    }
-  }
-  return { added, updated, skipped };
-}
+// 作业本身走 local-store 的 importDdls（本机），这里只剩画像课程合并。
 
 /** 把同步来的课程名合并进个人画像，保留已有画像字段 */
 export async function mergeProfileCourses(newCourses: string[]) {

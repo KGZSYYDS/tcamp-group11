@@ -1,0 +1,48 @@
+{
+  "method": "POST",
+  "path": "/api/wechat/scan",
+  "schema": "../../docs/schema/wechat-scan.schema.json",
+  "note": "真实请求与响应（2026-11-09 实抓，1 个群 / 14 天）。原始聊天正文一律不返回：导出文件写在系统临时目录，扫完立即删。items 就是 PersonalItem[]。",
+  "request": {
+    "groups": [
+      { "id": "49160223088@chatroom", "name": "深大计科26级腾班-通知群" }
+    ],
+    "days": 14
+  },
+  "response": {
+    "items": [
+      {
+        "kind": "meeting",
+        "title": "同学们注意哈 今天晚上咱们是要开班会的",
+        "startAt": "2026-10-26T00:00:00+08:00",
+        "allDay": true,
+        "location": null,
+        "note": "来自群：深大计科26级腾班-通知群｜原话：@所有人 同学们注意哈 今天晚上咱们是要开班会的"
+      },
+      {
+        "kind": "meeting",
+        "title": "主题班会 地点:致理楼L1-509, 时间:周一晚上19点",
+        "startAt": "2026-10-26T19:00:00+08:00",
+        "allDay": false,
+        "location": "致理楼",
+        "note": "来自群：深大计科26级腾班-通知群｜原话：主题班会 地点:致理楼L1-509, 时间:周一晚上19点"
+      }
+    ],
+    "stats": [
+      {
+        "name": "深大计科26级腾班-通知群",
+        "messages": 31,
+        "hinted": 11,
+        "items": 11
+      }
+    ],
+    "range": { "start": "2026-10-26", "end": "2026-11-09", "days": 14 },
+    "scanned": 31,
+    "hinted": 11
+  },
+  "note_on_items": "真实返回 11 条，这里只留 2 条。stats[0].items=11 是真实值。",
+  "error_response": {
+    "http_status": 503,
+    "error": "微信数据库没连上，先在微信里正常登录一次再试"
+  }
+}

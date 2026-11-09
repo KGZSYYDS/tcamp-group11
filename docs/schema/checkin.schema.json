@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://szu-calendar.local/schema/checkin.json",
+  "title": "Checkin · 签到记录（本机实体）",
+  "description": "只存浏览器 localStorage。没有去重键，每条都是独立事件。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["course", "occurredAt", "source"],
+  "properties": {
+    "id": { "type": "string", "description": "本机生成：c_<时间戳36>_<随机6>" },
+    "course": { "type": "string", "minLength": 1 },
+    "teacher": { "type": "string", "description": "统计时按 课程+老师 聚合，可空" },
+    "occurredAt": { "$ref": "https://szu-calendar.local/schema/common.json#/$defs/dateTime" },
+    "note": { "type": "string" },
+    "source": { "type": "string", "minLength": 1, "description": "manual / import / 采集器标识" },
+    "createdAt": { "$ref": "https://szu-calendar.local/schema/common.json#/$defs/dateTime" }
+  }
+}

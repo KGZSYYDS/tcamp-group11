@@ -1,0 +1,27 @@
+{
+  "_note": "这就是 data/meeting-sources.example.json 的完整形状（仓库里已入库的那份）。复制成 data/meeting-sources.json 后改 groups。name 对不上微信群名时会跳过；也可以只写 id。",
+  "_readme": [
+    "这是「从哪些群聊里提取会议/截止」的配置样例，复制成 data/meeting-sources.json 后按需修改。",
+    "name 用微信里显示的群名；name 对不上时会提示跳过。也可以只写 id（xxx@chatroom）。",
+    "先用 `npm run meetings:list` 看候选群和分数，挑分数高的写进来。",
+    "建议只放通知类群（班群、课程群、辅导员群），不要放闲聊群——闲聊进模型既没收益也浪费 token。"
+  ],
+  "groups": [
+    {
+      "name": "深大计科26级腾班-通知群",
+      "note": "班级通知，会议与截止都在这儿"
+    },
+    {
+      "name": "2026《智能网络与计算》课程群",
+      "note": "课程作业与论文安排"
+    },
+    {
+      "name": "深大26新生群1",
+      "note": "新生事务通知"
+    }
+  ],
+  "options": {
+    "days": 7,
+    "includeDeadline": true
+  }
+}

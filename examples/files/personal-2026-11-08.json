@@ -1,0 +1,104 @@
+{
+  "format": "szu-calendar-personal",
+  "version": 1,
+  "generatedAt": "2026-11-08T12:13:16.018Z",
+  "range": {
+    "start": "2026-11-01",
+    "end": "2026-11-08"
+  },
+  "groups": [
+    "深大计科26级腾班-通知群"
+  ],
+  "counts": {
+    "meeting": 0,
+    "deadline": 4
+  },
+  "events": [
+    {
+      "kind": "deadline",
+      "title": "提交生涯规划报告及PPT",
+      "startAt": "2026-11-08T00:00:00",
+      "allDay": true,
+      "location": null,
+      "note": "来自群：深大计科26级腾班-通知群 · 原话：11月8号之前大家把自己的生涯规划报告还有PPT以文件形式发给我"
+    },
+    {
+      "kind": "deadline",
+      "title": "院赛参赛报名截止",
+      "startAt": "2026-11-08T23:59:00",
+      "allDay": false,
+      "location": null,
+      "note": "来自群：深大计科26级腾班-通知群 · 原话：注意院赛流程和参赛报名截止时间『11.8 24:00』"
+    },
+    {
+      "kind": "deadline",
+      "title": "体测核实情况反馈表格提交",
+      "startAt": "2026-11-10T10:00:00",
+      "allDay": false,
+      "location": null,
+      "note": "来自群：深大计科26级腾班-通知群 · 原话：体委于11月10日（下周二）上午10:00前提交"
+    },
+    {
+      "kind": "deadline",
+      "title": "提交体测补预约手写情况说明",
+      "startAt": "2026-11-08T23:59:00",
+      "allDay": false,
+      "location": null,
+      "note": "来自群：深大计科26级腾班-通知群 · 原话：拍照发给本班体委。本周日24点前交齐发给我"
+    }
+  ],
+  "meetings": [
+    {
+      "type": "deadline",
+      "title": "提交生涯规划报告及PPT",
+      "date": "2026-11-08",
+      "startTime": null,
+      "endTime": null,
+      "location": null,
+      "group": "深大计科26级腾班-通知群",
+      "remindBefore": 180,
+      "quote": "11月8号之前大家把自己的生涯规划报告还有PPT以文件形式发给我",
+      "quoteOk": true,
+      "msgKey": "648736138471936660"
+    },
+    {
+      "type": "deadline",
+      "title": "院赛参赛报名截止",
+      "date": "2026-11-08",
+      "startTime": "23:59",
+      "endTime": null,
+      "location": null,
+      "group": "深大计科26级腾班-通知群",
+      "remindBefore": 180,
+      "quote": "注意院赛流程和参赛报名截止时间『11.8 24:00』",
+      "quoteOk": true,
+      "msgKey": "2919053222068689803"
+    },
+    {
+      "type": "deadline",
+      "title": "体测核实情况反馈表格提交",
+      "date": "2026-11-10",
+      "startTime": "10:00",
+      "endTime": null,
+      "location": null,
+      "group": "深大计科26级腾班-通知群",
+      "remindBefore": 1440,
+      "quote": "体委于11月10日（下周二）上午10:00前提交",
+      "quoteOk": true,
+      "msgKey": "731495036785902939"
+    },
+    {
+      "type": "deadline",
+      "title": "提交体测补预约手写情况说明",
+      "date": "2026-11-08",
+      "startTime": "23:59",
+      "endTime": null,
+      "location": null,
+      "group": "深大计科26级腾班-通知群",
+      "remindBefore": 180,
+      "quote": "拍照发给本班体委。本周日24点前交齐发给我",
+      "quoteOk": true,
+      "msgKey": "2929695812774218055"
+    }
+  ]
+}
