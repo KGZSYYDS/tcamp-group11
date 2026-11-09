@@ -33,15 +33,40 @@ components/     日历 / DDL / 签到 / 粘贴导入 / 登录 / 画像面板
 lib/            云 SDK、数据访问层（RLS 去重导入）、AI 解析、类型定义
 extension/      浏览器插件（Manifest V3，Chrome / Edge）
 public/         插件 zip 下载入口
+scripts/        采集器与测试（公文通 / 官网 / 课表 / 微信 / 日期回填）
+examples/       **真实数据样例**，对接方从这里看格式
+docs/schema/    JSON Schema（draft 2020-12）
 start.bat|sh    一键启动（缺依赖时自动 npm install）
+```
+
+## 数据格式（对接先看这里）
+
+不写长文档，直接给真跑出来的数据：
+
+- [`examples/README.md`](examples/README.md) —— 12 份真实 JSON 的对照表 + 三条硬规则 + 去重键
+- [`docs/schema/`](docs/schema/) —— 9 份 JSON Schema，同名 `.schema.json` 可直接校验
+
+```bash
+pip install jsonschema
+python scripts/validate-contract.py    # 退出码 0 = 全部通过
 ```
 
 ## 浏览器插件
 
+插件是**备用通道**。现在网页里已经能直接完成主要的两件事，不装插件也能用：
+
+| 需求 | 网页内做法 | 入口 |
+|---|---|---|
+| 畅课作业截止 | 输一次统一认证账号，服务端直连 `/api/todos` 拉回来 | 「DDL」页 · 畅课作业 |
+| 班群里的会议/截止 | 本机一键扫描微信记录（要装 WeFlow），或粘贴文字 | 「我的」页 · 导入微信 |
+| 课表 | 登录后自动带回，或导入 `data/timetable/*.json` | 「我的」页 |
+
+插件用法（想抓畅课全站待办时）：
+
 1. 打开 `chrome://extensions`，开启「开发者模式」
 2. 「加载已解压的扩展程序」→ 选本仓库的 `extension/` 目录
 3. 登录畅课 / 内部网后，点插件图标同步作业与通知
-   （也可用网页里的「AI 粘贴导入」，不装插件）
+   （也可用网页里的「+ 粘贴导入」，不装插件）
 
 ## 数据采集
 
@@ -50,7 +75,10 @@ start.bat|sh    一键启动（缺依赖时自动 npm install）
 ```bash
 SZU_USER=学号 SZU_PASS='密码' npm run collect:profile   # 姓名/学院/专业/年级 → data/profile.json
 npm run collect:board                    # 公文通 → data/board/*.json
-npm run ingest:notices                   # 上一步结果 → 云数据库（scope=school，按 URL 去重）
+npm run collect:web                      # 官网 3 频道（免登录）→ data/web/*.json
+npm run ingest:notices                   # 公文通结果 → 云数据库（scope=school，按 URL 去重）
+npm run ingest:notices -- --source web   # 官网结果 → 云数据库（source=web）
+npm run backfill:dates                   # 用采集文件重算已入库的 start_at（默认只算不写，加 --apply 才改库）
 npm run collect:timetable                # 办事大厅「我的课表」→ data/timetable/*.json（本机文件）
 npm run meetings:all                     # 微信全量群 → data/meetings/*.json（本机文件）
 ```
@@ -66,6 +94,9 @@ npm run meetings:all                     # 微信全量群 → data/meetings/*.j
 
 ## 协作约定
 
-- 依赖、构建产物、本地数据（`node_modules/`、`.next/`、`data/`）不入库，克隆后按上面方式启动即可
+- 依赖、构建产物、本地个人数据（`node_modules/`、`.next/`、`data/`）不入库，克隆后按上面方式启动即可。
+  `data/` 只有两个例外入库：`data/board/notices-latest.json`、`data/web/notices-web-latest.json`
+  —— 内容全是公开发布的通知、不含个人信息，是 `backfill:dates` 的默认输入，也是对接方唯一能看到全量真实结构的地方
+  （`.gitignore` 里要先放行目录再放行单个文件，否则 git 不会往下看）
 - 改动走功能分支，合并前提 PR 到 `main`
 - 云服务实例配置在 `lib/cloud.ts`（`publishableKey` 是前端公开配置，非密钥）
