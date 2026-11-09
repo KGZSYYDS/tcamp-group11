@@ -1,5 +1,6 @@
 import { cloud } from "./cloud";
 import { meetingSystemPrompt, weekAnchors } from "./meeting-prompt.mjs";
+import { pickEventTime } from "./parse-time.mjs";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -45,6 +46,44 @@ function extractDateCandidates(content: string): string[] {
     if (out.size >= 10) break;
   }
   return Array.from(out);
+}
+
+/** 正文里出现这些词时无法逐字比对日期，不做否定判断 */
+const RELATIVE_HINT = /(今天|明天|后天|大后天|下周|本周|这周|周[一二三四五六日天]|星期[一二三四五六日天])/;
+
+function compactText(text: string): string {
+  return String(text || "").replace(/[\s\u3000]+/g, "");
+}
+
+/**
+ * 模型给出的日期是否能在原文找到依据。
+ * 命中常见中文/数字写法即通过；原文本身用相对时间表述时放行（提示词已要求模型换算）。
+ */
+function isDateGrounded(date: string, content: string): boolean {
+  const [y, m, d] = date.split("-");
+  const mm = String(Number(m));
+  const dd = String(Number(d));
+  const forms = [
+    `${y}-${m}-${d}`,
+    `${y}.${m}.${d}`,
+    `${y}年${mm}月${dd}日`,
+    `${y}年${m}月${d}日`,
+    `${mm}月${dd}日`,
+    `${m}月${d}日`,
+    `${mm}月${dd}号`,
+    `${mm}/${dd}`,
+  ];
+  const hay = compactText(content);
+  if (forms.some((f) => hay.includes(f))) return true;
+  return RELATIVE_HINT.test(content);
+}
+
+/** 本地日期 YYYY-MM-DD */
+function todayISO(): string {
+  const now = new Date();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${mm}-${dd}`;
 }
 
 /** 把校园通知（标题+正文）解析为结构化日历事件 */
@@ -99,9 +138,19 @@ export async function parseNoticeToEvent(
   if (!match) throw new Error("AI 返回格式异常，请重试");
   const parsed = JSON.parse(match[0]);
 
-  // AI 未给出日期时，用正则候选兜底（用户仍可编辑确认）
+  // 模型给的日期必须能在正文找到依据；找不到就当作编造，改用规则择一的结果。
+  // 用户仍可在界面上确认/修改，所以这里的退化只会「少一个日期」，不会写错日期。
   const aiDate = normalizeDate(parsed.date);
-  const date = aiDate || candidates[0] || null;
+  const grounded = aiDate ? isDateGrounded(aiDate, content) : false;
+  if (aiDate && !grounded) {
+    console.warn("[llm] 模型给出的日期在正文中找不到依据，已改用规则结果:", aiDate);
+  }
+
+  let date: string | null = grounded ? aiDate : null;
+  if (!date) {
+    const picked = pickEventTime(content, todayISO());
+    date = picked.found ? picked.date : candidates[0] || null;
+  }
 
   return {
     title: String(parsed.title || title).slice(0, 60),
