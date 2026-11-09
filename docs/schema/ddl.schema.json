@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://szu-calendar.local/schema/ddl.json",
   "title": "Ddl · 作业/报名截止（本机实体）",
-  "description": "只存在于浏览器 localStorage。字段与 /api/lms/ddls、/api/import 的 items 完全一致。",
+  "description": "只存在于浏览器 localStorage。字段与 /api/lms/ddls 的 items 完全一致。",
   "type": "object",
   "additionalProperties": false,
   "required": ["course", "title", "dueAt", "status", "source"],

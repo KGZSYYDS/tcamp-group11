@@ -7,6 +7,10 @@ export const dynamic = "force-dynamic";
 /**
  * 公文通采集结果入库（公共数据层）。
  *
+ * 注意：当前实际链路不用这个接口 —— `scripts/ingest-notices.mjs` 直接写数据面 REST，
+ * 一次能出「活动行 + 截止行」两行，能力比这里强。保留本路由只为对外投递口兼容，
+ * 新功能请加在脚本侧，别在这里堆。
+ *
  * scripts/collect-board.mjs 产出 notices-*.json，登录状态下 POST 到这里：
  *   curl -X POST http://localhost:3000/api/board/ingest \
  *        -H "Content-Type: application/json" \

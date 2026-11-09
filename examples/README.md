@@ -64,10 +64,9 @@
 - 浏览器内发 `sync-payload`（见 `sync-payload.json`）；
 - 服务端自己登录畅课拉（`GET /api/lms/ddls`）。
 
-**3. 这四个接口已废弃，别接**
+**3. 这四个接口已删除**
 
-`/api/ddls`、`/api/checkins`、`/api/events`、`/api/import` —— 它们写服务端 `data/*.json`，
-而网页读的是 localStorage / 云库，写完页面看不到。
+`/api/ddls`、`/api/checkins`、`/api/events`、`/api/import` 写的是服务端 `data/*.json`，而网页读的是 localStorage / 云库，写完页面看不到。2026-11-09 已连同 `lib/store.ts` 一起移除，别再按这几个路径对接。
 
 ## 四、去重键
 

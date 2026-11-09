@@ -70,11 +70,20 @@ function todayInput() {
   return dateKey(new Date());
 }
 
+/** 公共事件的最近入库时间，形如 11-09 15:33 */
+function formatUpdatedAt(d: Date) {
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${hh}:${mm}`;
+}
+
 export default function CalendarPanel({ currentUserId }: { currentUserId: string }) {
   const [items, setItems] = useState<CalItem[]>([]);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [onlyRelated, setOnlyRelated] = useState(true);
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
+  /** 云库公共事件最后一次入库的时间；全部为空时不展示 */
+  const [cloudUpdatedAt, setCloudUpdatedAt] = useState<Date | null>(null);
 
   useEffect(() => {
     try {
@@ -130,6 +139,13 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
         cloudFailed = true;
         return [] as CalEvent[];
       });
+
+      // 新鲜度只看公共事件：created_at 是入库时间，取最新的一条
+      const latest = events.reduce((max, e) => {
+        const t = e.createdAt ? Date.parse(e.createdAt) : 0;
+        return t > max ? t : max;
+      }, 0);
+      setCloudUpdatedAt(latest ? new Date(latest) : null);
       const ddls = loadDdls();
       const checkins = loadCheckins();
       const p = await getProfile().catch(() => null);
@@ -417,6 +433,14 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
           </button>
         </div>
         <div className="flex items-center gap-3">
+          {cloudUpdatedAt && (
+            <span
+              className="text-xs text-gray-400"
+              title="公共事件最近一次入库的时间，本机数据实时更新"
+            >
+              数据更新于 {formatUpdatedAt(cloudUpdatedAt)}
+            </span>
+          )}
           <label className="flex items-center gap-1.5 text-sm text-gray-600">
             <input
               type="checkbox"

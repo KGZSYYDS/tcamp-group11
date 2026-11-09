@@ -28,7 +28,7 @@ npm run dev
 ## 目录
 
 ```
-app/            页面 + 本地 API routes（采集器备用入口）
+app/            页面与服务端接口（App Router）
 components/     日历 / DDL / 签到 / 粘贴导入 / 登录 / 画像面板
 lib/            云 SDK、数据访问层（RLS 去重导入）、AI 解析、类型定义
 extension/      浏览器插件（Manifest V3，Chrome / Edge）
