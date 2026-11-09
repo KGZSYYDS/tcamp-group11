@@ -315,7 +315,8 @@
 .calendar-app .notice-add{width:36px;height:36px}
 .calendar-app .page-footer{margin-top:20px;font-size:9px}
 .calendar-app .page-footer>span:last-child{display:none}
-.calendar-app .dock-area{bottom:max(11px,env(safe-area-inset-bottom));height:85px;width:344px;max-width:calc(100vw - 24px)}
+.calendar-app .dock-area{bottom:max(6px,env(safe-area-inset-bottom));height:14px;min-height:14px;width:min(220px,70vw)}
+.calendar-app .dock-area.is-open{height:auto;min-height:58px;width:auto;max-width:calc(100vw - 24px)}
 .calendar-app .dock-caption{display:none}
 .calendar-app .dock-area:before{inset:0 -8px -10px}
 .calendar-app .view-dock.dock{border-radius:23px}
@@ -711,8 +712,9 @@
 }
 .calendar-app .search-results button > span { position: absolute; right: 0; top: 30px; }
 
-/* Dock 的容器由本页提供，原型里是 fixed 定位，这里跟随页面滚动 */
-.calendar-app .dock-area { position: relative; left: auto; right: auto; bottom: auto; transform: none; margin: 28px auto 12px; height: auto; min-height: 96px; z-index: auto; }
+/* Dock 改为可隐藏浮动条：默认折叠为灰色透明带状条，悬停/点击展开。z-index 置于应用上层。 */
+.calendar-app .dock-area { position: fixed; left: 50%; bottom: 6px; transform: translateX(-50%); z-index: 40; width: auto; min-width: 160px; max-width: calc(100vw - 24px); height: 14px; min-height: 14px; background: rgba(120,124,140,.22); border-radius: 8px; backdrop-filter: blur(6px); transition: all .28s cubic-bezier(.22,1,.36,1); }
+.calendar-app .dock-area.is-open { background: transparent; height: auto; min-height: 64px; }
 .calendar-app .toast { position: fixed; }
 
 /* 时钟视图：上下排列 + 统一气泡容器 */

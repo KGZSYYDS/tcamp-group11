@@ -5,7 +5,6 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   AlignVerticalJustifyStart,
   CalendarDays,
-  CalendarRange,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -19,7 +18,7 @@ import type { AgendaEvent, AgendaVisual } from "@/lib/agenda";
 import { categoriesOf, dateKey } from "@/lib/agenda";
 import { filterByProfile, groupByDate, useAgenda } from "@/lib/useAgenda";
 import ClockFace, { EventRow, VISUAL_META } from "./calendar/ClockFace";
-import { MonthView, WeekView } from "./calendar/MonthWeekView";
+import { MonthView } from "./calendar/MonthWeekView";
 import TimelineView from "./calendar/TimelineView";
 import EventDialog from "./calendar/EventDialog";
 import type { DialogState, EventFormData } from "./calendar/EventDialog";
@@ -31,12 +30,11 @@ import { SlidingNumber } from "./calendar/ui/SlidingNumber";
 import { TextMorph } from "./calendar/ui/TextMorph";
 import { useReducedMotion } from "./calendar/ui/useMotionPreference";
 
-type ViewId = "clock" | "month" | "week" | "timeline";
+type ViewId = "clock" | "month" | "timeline";
 
 const VIEWS: { id: ViewId; label: string; icon: typeof Clock3 }[] = [
   { id: "clock", label: "时钟", icon: Clock3 },
   { id: "month", label: "月历", icon: CalendarDays },
-  { id: "week", label: "课表", icon: CalendarRange },
   { id: "timeline", label: "时间轴", icon: AlignVerticalJustifyStart },
 ];
 
@@ -79,6 +77,13 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
   const [toast, setToast] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+  /** Dock 折叠态：默认折叠为灰色带状条，点击/悬停/上滑展开 */
+  const [dockOpen, setDockOpen] = useState(false);
+  const dockHover = useRef<number>(0);
+  /** Dock 自动折叠计时器句柄 */
+  const dockHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** 已挂载过的视图集合，用于懒加载：首次进入才渲染，之后用 display 切换保留 */
+  const mountedViews = useRef<Set<ViewId>>(new Set(["month"]));
   const reduced = useReducedMotion();
 
   // 本地偏好放在挂载后读取，避免服务端渲染时访问 localStorage
@@ -128,6 +133,7 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
 
   function switchView(id: ViewId, instant = false) {
     setQuickSwitch(instant);
+    mountedViews.current.add(id);
     setView(id);
   }
 
@@ -141,7 +147,7 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
       setSelected(new Date(selected.getFullYear(), selected.getMonth() + delta, 1));
       return;
     }
-    setSelected(addDays(selected, delta * (view === "week" ? 7 : 1)));
+    setSelected(addDays(selected, delta * 1));
   }
 
   function toggleFilter(id: AgendaVisual) {
@@ -212,7 +218,7 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
       const target = e.target as HTMLElement | null;
       if (dialogOpen || e.metaKey || e.ctrlKey || e.altKey) return;
       if (target?.matches("input,textarea,select")) return;
-      const index = ["1", "2", "3", "4"].indexOf(e.key);
+      const index = ["1", "2", "3"].indexOf(e.key);
       if (index >= 0) switchView(VIEWS[index].id, true);
       if (e.key === "/") {
         e.preventDefault();
@@ -226,9 +232,7 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
   const dateLabel =
     view === "month"
       ? `${selected.getMonth() + 1} 月`
-      : view === "week"
-        ? `${monday.getMonth() + 1}.${monday.getDate()} — ${addDays(monday, 6).getMonth() + 1}.${addDays(monday, 6).getDate()}`
-        : `${selected.getMonth() + 1} 月 ${selected.getDate()} 日`;
+      : `${selected.getMonth() + 1} 月 ${selected.getDate()} 日`;
 
   return (
     <div className="calendar-app" data-view={view}>
@@ -318,90 +322,82 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
       {error ? <p className="cal-error">{error}</p> : null}
       {!loaded ? <p className="cal-loading">正在加载云端日程…</p> : null}
 
-      <motion.div
-        key={view}
-        className="view-container"
-        initial={quickSwitch ? { opacity: 1, transform: "none" } : { opacity: 0, transform: reduced ? "none" : "translateY(6px)" }}
-        animate={{ opacity: 1, transform: "none" }}
-        transition={{ duration: reduced ? 0 : 0.16, ease: [0.23, 1, 0.32, 1] }}
-      >
-        {view === "clock" ? (
-          <div className="clock-bubble">
-            <ClockFace
-              instant={quickSwitch}
-              events={todayEvents}
+      {/* 懒加载：每个视图首次进入才挂载，已挂载的用 display 切换保留状态，切换瞬间完成不重新请求数据/不重放动画 */}
+      <div className="view-container" data-view={view}>
+        <div className="view-slot" hidden={view !== "clock"}>
+          {view === "clock" || mountedViews.current.has("clock") ? (
+            <div className="clock-bubble">
+              <ClockFace
+                instant={quickSwitch}
+                events={todayEvents}
+                selected={selected}
+                onSelect={(event) => open({ kind: "detail", event })}
+              />
+
+              <section className="agenda">
+                <div className="section-title">
+                  <h2>
+                    当天安排{" "}
+                    <span aria-label={`${todayEvents.length} 项日程`}>
+                      <SlidingNumber value={todayEvents.length} />
+                    </span>
+                  </h2>
+                  <button type="button" className="subtle" onClick={() => open({ kind: "add" })}>
+                    <Plus size={17} />
+                    添加
+                  </button>
+                </div>
+
+                <div className="agenda-list">
+                  {todayEvents.length ? (
+                    todayEvents.map((event) => (
+                      <EventRow
+                        key={event.id}
+                        event={event}
+                        onClick={() => open({ kind: "detail", event })}
+                      />
+                    ))
+                  ) : (
+                    <div className="empty">
+                      <Coffee />
+                      <h3>{loaded ? "这一天的留白，交给你" : "正在读取日程…"}</h3>
+                      <p>
+                        {loaded
+                          ? allTodayCount > 0
+                            ? "当前筛选下没有日程，试试打开更多类别。"
+                            : "添加一件想做的事，慢慢安排。"
+                          : "稍等片刻。"}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </section>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="view-slot" hidden={view !== "month"}>
+          {view === "month" || mountedViews.current.has("month") ? (
+            <MonthView
               selected={selected}
-              onSelect={(event) => open({ kind: "detail", event })}
+              eventsFor={eventsFor}
+              onDate={setSelected}
+              onEvent={(event) => open({ kind: "detail", event })}
+              onOpenDay={() => switchView("clock")}
             />
+          ) : null}
+        </div>
 
-            <section className="agenda">
-              <div className="section-title">
-                <h2>
-                  当天安排{" "}
-                  <span aria-label={`${todayEvents.length} 项日程`}>
-                    <SlidingNumber value={todayEvents.length} />
-                  </span>
-                </h2>
-                <button type="button" className="subtle" onClick={() => open({ kind: "add" })}>
-                  <Plus size={17} />
-                  添加
-                </button>
-              </div>
-
-              <div className="agenda-list">
-                {todayEvents.length ? (
-                  todayEvents.map((event) => (
-                    <EventRow
-                      key={event.id}
-                      event={event}
-                      onClick={() => open({ kind: "detail", event })}
-                    />
-                  ))
-                ) : (
-                  <div className="empty">
-                    <Coffee />
-                    <h3>{loaded ? "这一天的留白，交给你" : "正在读取日程…"}</h3>
-                    <p>
-                      {loaded
-                        ? allTodayCount > 0
-                          ? "当前筛选下没有日程，试试打开更多类别。"
-                          : "添加一件想做的事，慢慢安排。"
-                        : "稍等片刻。"}
-                    </p>
-                  </div>
-                )}
-              </div>
-            </section>
-          </div>
-        ) : null}
-
-        {view === "month" ? (
-          <MonthView
-            selected={selected}
-            eventsFor={eventsFor}
-            onDate={setSelected}
-            onEvent={(event) => open({ kind: "detail", event })}
-            onOpenDay={() => switchView("clock")}
-          />
-        ) : null}
-
-        {view === "week" ? (
-          <WeekView
-            selected={selected}
-            eventsFor={eventsFor}
-            onEvent={(event) => open({ kind: "detail", event })}
-          />
-        ) : null}
-
-        {view === "timeline" ? (
-          <TimelineView
-            key={dateKey(selected) + enabled.join("") + hiddenIds.length}
-            selected={selected}
-            eventsFor={eventsFor}
-            onEvent={(event) => open({ kind: "detail", event })}
-          />
-        ) : null}
-      </motion.div>
+        <div className="view-slot" hidden={view !== "timeline"}>
+          {view === "timeline" || mountedViews.current.has("timeline") ? (
+            <TimelineView
+              selected={selected}
+              eventsFor={eventsFor}
+              onEvent={(event) => open({ kind: "detail", event })}
+            />
+          ) : null}
+        </div>
+      </div>
 
       <footer className="page-footer">
         <span>
@@ -411,9 +407,25 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
         <span>深大日程 / 把在意的事，放进时间里</span>
       </footer>
 
-      <div className="dock-area">
+      <div
+        className={`dock-area${dockOpen ? " is-open" : ""}`}
+        onMouseEnter={() => {
+          if (dockHideTimer.current) { clearTimeout(dockHideTimer.current); dockHideTimer.current = null; }
+          setDockOpen(true);
+        }}
+        onMouseLeave={() => {
+          // 离开后延迟自动折叠，给用户一点缓冲
+          dockHideTimer.current = setTimeout(() => setDockOpen(false), 1200);
+        }}
+        onClick={() => {
+          if (!dockOpen) setDockOpen(true);
+        }}
+        role="toolbar"
+        aria-label="视图切换"
+        aria-expanded={dockOpen}
+      >
         <div className="dock-caption">
-          换个角度，看时间<span>1 — 4</span>
+          换个角度，看时间<span>1 — 3</span>
         </div>
         <Dock
           key={String(reduced)}
@@ -438,7 +450,11 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
                   <span className="dock-name">{item.label}</span>
                 </>
               ),
-              onClick: () => switchView(item.id),
+              onClick: () => {
+                switchView(item.id);
+                // 切换后延迟自动折叠
+                dockHideTimer.current = setTimeout(() => setDockOpen(false), 900);
+              },
             };
           })}
         />

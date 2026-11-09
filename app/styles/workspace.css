@@ -26,6 +26,11 @@ input:focus,textarea:focus,select:focus { outline:2px solid var(--brand); outlin
 .app-nav>button[aria-current="page"] { background:var(--brand); color:white; }
 .app-content { grid-column:1/-1; min-height:0; min-width:0; overflow:auto; scrollbar-width:thin; scrollbar-color:var(--edge) transparent; padding:2px; }
 .app-shell[data-tab="calendar"] .app-content { overflow:hidden; }
+.app-banner { grid-column:1/-1; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:6px 12px; margin:0 0 4px; border-radius:10px; background:var(--brand-soft); border:1px solid var(--edge); font-size:11px; color:var(--brand); flex-shrink:0; }
+.app-banner p { margin:0; }
+.app-banner>div { display:flex; align-items:center; gap:6px; }
+.app-banner button:first-child { background:var(--surface); color:var(--brand); border:1px solid var(--edge); border-radius:6px; padding:3px 8px; font-size:11px; }
+.app-banner button:last-child { background:none; border:0; color:var(--brand); font-size:14px; line-height:1; padding:0 2px; }
 .app-footer { grid-column:1/-1; font-size:10px; color:var(--secondary); align-self:center; text-align:center; }
 .ripple-button { position:relative; overflow:hidden; isolation:isolate; }
 .button-wave { position:absolute; pointer-events:none; border-radius:50%; background:currentColor; animation:button-ripple .6s ease-out forwards; z-index:1; }
@@ -132,10 +137,28 @@ input:focus,textarea:focus,select:focus { outline:2px solid var(--brand); outlin
 .calendar-app .timeline-day.is-empty .timeline-date { display:flex; align-items:center; gap:3px; padding:7px 0; }.calendar-app .timeline-day.is-empty .timeline-date strong { font-size:14px; margin:0; }.calendar-app .timeline-day.is-empty .timeline-date small { display:none; }
 .calendar-app .timeline-day.is-empty .timeline-track { padding:8px 0 8px 18px; }.calendar-app .timeline-empty { margin:0; padding:0; font-size:10px; color:var(--secondary); }.calendar-app .timeline-sentinel { padding:12px; }
 .calendar-app .page-footer { display:none; }
-.calendar-app .dock-area { flex-shrink:0; position:relative; height:68px; min-height:68px; width:100%; margin:4px 0 0; padding:0; }
+.calendar-app .dock-area { flex-shrink:0; position:fixed; left:50%; bottom:6px; transform:translateX(-50%); width:auto; min-width:160px; max-width:calc(100vw - 24px); margin:0; padding:0; z-index:40; transition:all .28s cubic-bezier(.22,1,.36,1); }
 .calendar-app .dock-area:before,.calendar-app .dock-caption { display:none; }
-.calendar-app .dock { bottom:0; }
-.calendar-app .dock-panel { background:var(--surface); border:1px solid var(--edge); border-radius:16px; box-shadow:var(--shadow); padding:6px; }
+/* 折叠态：灰色透明带状条 */
+.calendar-app .dock-area:not(.is-open) {
+  height:14px; min-height:14px; width:min(220px,70vw);
+  background:rgba(120,124,140,.22);
+  border-radius:8px;
+  backdrop-filter:blur(6px);
+  box-shadow:0 2px 8px rgba(24,24,27,.08);
+  cursor:pointer;
+}
+.calendar-app .dock-area:not(.is-open) .dock-panel,
+.calendar-app .dock-area:not(.is-open) .dock-labels { opacity:0; pointer-events:none; transform:translateY(8px); }
+.calendar-app .dock-area:not(.is-open):hover { background:rgba(120,124,140,.32); height:18px; }
+/* 展开态 */
+.calendar-app .dock-area.is-open {
+  height:auto; min-height:64px;
+  background:transparent;
+}
+.calendar-app .dock-area.is-open .dock-panel { opacity:1; transform:none; }
+.calendar-app .dock { bottom:0; position:relative; transform:none; left:auto; }
+.calendar-app .dock-panel { background:var(--surface); border:1px solid var(--edge); border-radius:16px; box-shadow:var(--shadow); padding:6px; transition:opacity .22s,transform .22s; }
 .calendar-app .dock-item { color:var(--text); }.calendar-app .dock-item.is-active .dock-tile { background:var(--brand); color:#fff; border-radius:11px; }.calendar-app .dock-dot { display:none; }
 .calendar-app .mobile-add { display:none; }
 .calendar-app .dialog { background:var(--surface); color:var(--text); max-height:calc(100dvh - 32px); overflow:auto; border:1px solid var(--edge); }
@@ -154,7 +177,7 @@ input:focus,textarea:focus,select:focus { outline:2px solid var(--brand); outlin
 @media (min-width:900px) and (max-height:800px) { .orbit-dial { width:min(100%,300px); }.calendar-app .orbit-card { padding-top:12px; }.orbit-time { font-size:34px; }.orbit-center>span { font-size:9px; } }
 @media (max-width:1000px) { .app-shell { padding:10px 16px 6px; gap:10px; }.app-header p { display:none; }.app-nav>button { padding:9px 12px; }.calendar-app .month-card { grid-template-columns:minmax(0,1fr) 240px; }.calendar-app .date-controls { gap:8px; }.calendar-app .filter-group { gap:4px; }.calendar-app .filter-group>button:not(.icon-button) { padding:7px; } }
 @media (max-width:700px) {
-  .app-shell { grid-template-columns:1fr; grid-template-rows:42px 42px minmax(0,1fr); padding:8px 10px max(6px,env(safe-area-inset-bottom)); gap:8px; }
+  .app-shell { grid-template-columns:1fr; grid-template-rows:auto auto auto minmax(0,1fr); padding:8px 10px max(6px,env(safe-area-inset-bottom)); gap:6px; }
   .app-header h1 { font-size:18px; }.app-header>div>div:first-child { width:32px; height:32px; border-radius:10px; }.app-header { gap:8px; }.app-header>button { padding:7px; font-size:11px; }
   .app-nav { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); width:100%; border-radius:12px; gap:2px; padding:3px; }.app-nav>button { padding:8px 0; font-size:12px; min-width:0; }.app-footer { display:none; }
   .calendar-app .date-controls { display:flex; flex-direction:column; align-items:stretch; gap:6px; margin-bottom:8px; }
@@ -175,12 +198,13 @@ input:focus,textarea:focus,select:focus { outline:2px solid var(--brand); outlin
   .calendar-app .month-selected { flex:1; padding:6px 12px; border-left:0; border-top:1px solid var(--edge); }.calendar-app .month-selected .section-title { margin:0; }.calendar-app .month-selected .subtle { min-height:30px; }.calendar-app .month-selected-scroll { flex:1; }.calendar-app .month-selected .event-row { min-height:58px; padding:7px 0; }
   .calendar-app .week-card,.calendar-app .timeline-card { border-radius:15px; }.calendar-app .week-info { min-height:34px; padding:7px 9px; font-size:9px; }.calendar-app .week-info>span:first-child { font-size:10px; }.calendar-app .week-scroll { padding:0 3px 5px; }.calendar-app .week-grid { grid-template-columns:28px repeat(7,minmax(0,1fr)); grid-template-rows:50px minmax(0,1fr); }.calendar-app .week-label strong { font-size:14px; }.calendar-app .period-column small { font-size:7px; }.calendar-app .course-block { padding:3px 2px; border-left-width:2px; border-radius:4px; }.calendar-app .course-block strong { font-size:9px; -webkit-line-clamp:3; }.calendar-app .course-block small,.calendar-app .course-block>span { display:none; }
   .calendar-app .timeline-heading { padding:10px 12px; font-size:10px; min-height:38px; }.calendar-app .timeline-heading>span:last-child { display:none; }.calendar-app .timeline-scroll { padding:0 10px; }.calendar-app .timeline-day { grid-template-columns:40px minmax(0,1fr); gap:7px; }.calendar-app .timeline-track { padding-left:12px; }.calendar-app .timeline-date strong { font-size:23px; }.calendar-app .timeline-event { padding:8px 23px 8px 9px; margin-bottom:6px; }.calendar-app .timeline-event h3 { font-size:12px; margin-top:3px; }.calendar-app .timeline-event>span { font-size:9px; }.calendar-app .timeline-event p { font-size:9px; }.calendar-app .timeline-event small { font-size:8px; }.calendar-app .timeline-arrow { right:8px; }.calendar-app .timeline-day.is-empty .timeline-track { padding-left:12px; }
-  .calendar-app .dock-area { height:64px; min-height:64px; margin-top:2px; }
+  .calendar-app .dock-area { height:14px; min-height:14px; }
+  .calendar-app .dock-area.is-open { min-height:58px; }
   .app-content>.grid { gap:10px; }.app-content .p-5 { padding:14px; }.app-content .p-4 { padding:12px; }.app-content .mb-6 { margin-bottom:14px; }
   .import-toolbar>button { padding:7px 9px; font-size:12px; }.import-toolbar>button:last-child { margin-left:0; }
   .calendar-app .dialog { width:100%; border-radius:18px; }.calendar-app .dialog-backdrop { padding:10px; }.calendar-app .dialog input,.calendar-app .dialog textarea,.calendar-app .dialog select { font-size:16px; }
 }
-@media (max-width:700px) and (max-height:700px) { .calendar-app .month-cell { height:38px; min-height:38px; }.calendar-app .month-number { height:28px; min-height:28px; }.calendar-app .month-heading { padding-top:4px; }.calendar-app .month-selected .event-row { min-height:52px; }.calendar-app .dock-area { min-height:60px; height:60px; } }
+@media (max-width:700px) and (max-height:700px) { .calendar-app .month-cell { height:38px; min-height:38px; }.calendar-app .month-number { height:28px; min-height:28px; }.calendar-app .month-heading { padding-top:4px; }.calendar-app .month-selected .event-row { min-height:52px; } }
 @media (max-height:500px) { .app-shell { height:auto; min-height:100dvh; }.app-content { overflow:visible; }.calendar-app { min-height:500px; }.calendar-app .view-container { min-height:350px; }.calendar-app .week-card,.calendar-app .timeline-card { height:420px; }.calendar-app .clock-bubble { min-height:420px; } }
 @media (prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto!important; }.button-wave { display:none; } }
 
@@ -212,3 +236,30 @@ input:focus,textarea:focus,select:focus { outline:2px solid var(--brand); outlin
 .calendar-app .pill { background:var(--brand-soft); color:var(--brand); }
 @media(max-width:360px) { .calendar-app .date-navigation h2 { min-width:80px; }.calendar-app .date-navigation { gap:3px; }.calendar-app .today-button { margin-left:2px; padding:5px 8px; }.calendar-app .filter-group>button:not(.icon-button) { padding:5px 6px; } }
 @media(max-width:700px) { .login-shell { padding-top:16px; padding-bottom:16px; }.login-brand { margin-bottom:16px; }.login-brand>div:first-child { width:44px; height:44px; margin-bottom:8px; }.login-brand h1 { font-size:26px; }.login-brand p { font-size:12px; margin-top:6px; }.login-brand>div:last-child { display:none; }.login-shell>.bg-white { padding:20px; }.login-shell>div:last-child a { font-size:12px; } }
+
+/* === 懒加载 view-slot：只显示当前视图，已挂载的保留状态但不占空间 === */
+.calendar-app .view-container { position:relative; }
+.calendar-app .view-slot { display:block; }
+.calendar-app .view-slot[hidden] { display:none; }
+
+/* === 时钟视图：Dock 浮动后视窗占满。clock-card 占主体，agenda 固定高度显示当天安排；全天事项展开后整条气泡可滚 === */
+.calendar-app[data-view="clock"] .view-container { overflow:hidden; }
+.calendar-app[data-view="clock"] .clock-bubble { height:100%; min-height:0; overflow:hidden; display:flex; flex-direction:column; }
+.calendar-app[data-view="clock"] .clock-bubble .clock-card { flex:1 1 auto; min-height:0; overflow:auto; scrollbar-width:thin; }
+.calendar-app[data-view="clock"] .clock-bubble .agenda { flex-shrink:0; height:38%; max-height:240px; min-height:110px; overflow:auto; scrollbar-width:thin; overscroll-behavior:contain; border-top:1px solid var(--edge); }
+.calendar-app[data-view="clock"] .clock-bubble .agenda-list { overflow:visible; }
+/* 全天事项展开后，clock-card 内容变高，整条气泡允许滚动查看 */
+.calendar-app[data-view="clock"] .clock-bubble:has(.all-day-tray[open]) { overflow:auto; scrollbar-width:thin; }
+.calendar-app[data-view="clock"] .clock-bubble:has(.all-day-tray[open]) .clock-card { overflow:visible; flex:none; }
+.calendar-app[data-view="clock"] .clock-bubble:has(.all-day-tray[open]) .agenda { overflow:visible; height:auto; max-height:none; }
+
+/* === 月历：日历网格 + 当日安排合并为同一可滚动区域 === */
+.calendar-app[data-view="month"] .view-container { overflow:auto; scrollbar-width:thin; overscroll-behavior:contain; }
+.calendar-app[data-view="month"] .month-card { height:auto; min-height:100%; }
+.calendar-app[data-view="month"] .month-selected-scroll { max-height:none; flex:none; }
+/* 移动端：月历整页可滑动，当日安排不再单独滚动 */
+@media (max-width:700px) {
+  .calendar-app[data-view="month"] .view-container { overflow:auto; }
+  .calendar-app[data-view="month"] .month-board { flex-shrink:0; }
+  .calendar-app[data-view="month"] .month-selected-scroll { overflow:visible; max-height:none; }
+}
