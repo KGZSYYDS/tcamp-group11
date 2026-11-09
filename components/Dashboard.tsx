@@ -7,6 +7,7 @@ import ProfilePanel from "@/components/ProfilePanel";
 import SyncReceiver from "@/components/SyncReceiver";
 import PasteImporter from "@/components/PasteImporter";
 import DdlPanel from "@/components/DdlPanel";
+import ReminderBar from "@/components/ReminderBar";
 import type { SzUser } from "@/lib/szu-types";
 
 type Tab = "calendar" | "ddl" | "checkin" | "paste" | "me";
@@ -16,6 +17,8 @@ export default function Dashboard() {
   const [checking, setChecking] = useState(true);
   const [tab, setTab] = useState<Tab>("calendar");
   const [bannerOff, setBannerOff] = useState(false);
+  /** 提醒条里的条数，用于「截止日期」Tab 的角标 */
+  const [reminderCount, setReminderCount] = useState(0);
 
   /**
    * 登录态只问本机服务端，不再向第三方账号系统查。
@@ -106,6 +109,8 @@ export default function Dashboard() {
         </div>
       )}
 
+      <ReminderBar onOpen={() => setTab("ddl")} onCountChange={setReminderCount} />
+
       <nav className="mb-6 inline-flex max-w-full gap-1 overflow-x-auto rounded-full bg-white p-1 shadow-sm ring-1 ring-gray-100">
         {([
           ["calendar", "深大日历"],
@@ -124,6 +129,11 @@ export default function Dashboard() {
             }`}
           >
             {label}
+            {key === "ddl" && reminderCount > 0 && (
+              <span className="ml-1.5 inline-flex min-w-[18px] justify-center rounded-full bg-rose-500 px-1 py-0.5 text-[10px] font-semibold leading-none text-white">
+                {reminderCount > 99 ? "99+" : reminderCount}
+              </span>
+            )}
           </button>
         ))}
       </nav>

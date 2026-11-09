@@ -18,7 +18,8 @@
     "ingest:notices": "node scripts/ingest-notices.mjs",
     "backfill:dates": "node scripts/backfill-dates.mjs",
     "test:deadline": "node scripts/test-deadline.mjs",
-    "test:parse-time": "node scripts/test-parse-time.mjs"
+    "test:parse-time": "node scripts/test-parse-time.mjs",
+    "test:reminders": "node scripts/test-reminders.mjs"
   },
   "dependencies": {
     "@tencent-ai/workbuddy-cloud-sdk": "dev",
