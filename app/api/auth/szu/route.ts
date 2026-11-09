@@ -54,11 +54,14 @@ export async function POST(req: Request) {
 
     // ② 教务系统走单点登录换 ticket —— 不能再登一次，重复登录会被判风控
     let jwkwOk = false;
+    let jwkwError: string | undefined;
     try {
       const landed = await casSsoInto(jar, JWKW_SERVICE);
       jwkwOk = Boolean(landed);
-    } catch {
-      /* 教务不可用不影响看课表以外的东西，下面单独提示 */
+    } catch (e) {
+      // 教务不可用不影响看课表以外的东西，但要把原因带出去：
+      // 专业/班级就是从教务取的，这里失败会表现为「专业为空」而不报错。
+      jwkwError = e instanceof Error ? e.message : String(e);
     }
 
     // ③ 档案是学籍的权威口径，拿不到就不算登录成功
@@ -86,6 +89,7 @@ export async function POST(req: Request) {
       timetable,
       warning,
       jwkwOk,
+      jwkwError,
     });
     res.cookies.set(SESSION_COOKIE, token, {
       httpOnly: true,

@@ -9,7 +9,7 @@
  *   学院       ← 同上 userDepartment
  *   培养层次   ← 同上 userTypeName（学生 / 研究生 …）
  *   性别       ← 同上 userSex
- *   专业       ← jwkw currentUser.do（拿不到时留空，用班级/课表反推）
+ *   专业       ← jwkw currentUser.do 里试取；该接口实测只给姓名/学号/学期/周次，留空是常态
  *   年级       ← 学号前 4 位（深大学号 = 入学年份 + 学院码 + 序号）
  *   学期/周次  ← jwkw classWeek.do
  *
