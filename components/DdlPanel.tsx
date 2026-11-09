@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CalEvent, Ddl } from "@/lib/types";
 import { listEvents } from "@/lib/data";
-import { buildDeadlines, sourceLabel, type UnifiedDeadline } from "@/lib/deadlines";
+import { buildDeadlines, sourceLabel, type DeadlineSource, type UnifiedDeadline } from "@/lib/deadlines";
 import {
   addDdl,
   loadDdls,
@@ -130,6 +130,7 @@ export default function DdlPanel() {
   const [loaded, setLoaded] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [filter, setFilter] = useState<Filter>("pending");
+  const [source, setSource] = useState<"all" | DeadlineSource>("all");
   const [tag, setTag] = useState("all");
   const [showExpired, setShowExpired] = useState(false);
   const [showForm, setShowForm] = useState(false);
@@ -165,6 +166,13 @@ export default function DdlPanel() {
 
   const tags = useMemo(() => Array.from(new Set(all.map((d) => d.tag))).filter(Boolean), [all]);
 
+  /** 只在数据里真的出现过的来源，避免列一排空选项 */
+  const sources = useMemo(() => {
+    const present = new Set(all.map((d) => d.source));
+    const order: DeadlineSource[] = ["board", "web", "wechat", "lms-sync", "manual", "paste-import"];
+    return order.filter((s) => present.has(s));
+  }, [all]);
+
   /** 已截止但没勾掉的单独放下面，不然一进页面先看到一堆过期的。 */
   const { upcoming, expired, doneList, stats } = useMemo(() => {
     const pendingAll = all.filter((d) => d.status === "pending");
@@ -185,11 +193,14 @@ export default function DdlPanel() {
     };
   }, [all, now]);
 
+  const bySource = (list: UnifiedDeadline[]) =>
+    source === "all" ? list : list.filter((d) => d.source === source);
+
   const byTag = (list: UnifiedDeadline[]) =>
     tag === "all" ? list : list.filter((d) => d.tag === tag);
 
-  const visible = byTag(filter === "pending" ? upcoming : filter === "done" ? doneList : all);
-  const expiredVisible = filter === "done" ? [] : byTag(expired);
+  const visible = byTag(bySource(filter === "pending" ? upcoming : filter === "done" ? doneList : all));
+  const expiredVisible = filter === "done" ? [] : byTag(bySource(expired));
 
   async function toggle(item: UnifiedDeadline) {
     if (item.editable) {
@@ -352,7 +363,7 @@ export default function DdlPanel() {
           onChange={(e) => setTag(e.target.value)}
           className="ml-auto rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-600"
         >
-          <option value="all">全部来源</option>
+          <option value="all">全部标签</option>
           {tags.map((t) => (
             <option key={t} value={t}>
               {t}
@@ -360,6 +371,23 @@ export default function DdlPanel() {
           ))}
         </select>
       </section>
+
+      {sources.length > 1 && (
+        <section className="mb-4 flex flex-wrap items-center gap-2">
+          <span className="text-xs text-gray-400">来源</span>
+          {(["all", ...sources] as const).map((s) => (
+            <button
+              key={s}
+              onClick={() => setSource(s)}
+              className={`rounded-full px-2.5 py-1 text-xs ${
+                source === s ? "bg-gray-800 text-white" : "bg-white text-gray-600 hover:bg-gray-100"
+              }`}
+            >
+              {s === "all" ? "全部" : sourceLabel(s)}
+            </button>
+          ))}
+        </section>
+      )}
 
       {errorMsg && <p className="mb-3 text-sm text-red-500">{errorMsg}</p>}
 
