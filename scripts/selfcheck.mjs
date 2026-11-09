@@ -72,9 +72,13 @@ if (!LOCAL_HOSTS.has(baseUrl.hostname)) {
 /* ---------- 小工具 ---------- */
 
 const t0 = Date.now();
+let stepStart = t0;
+const fmtMs = (ms) => (ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`);
+/** 单步耗时：每次调用后重置，避免显示成累计时间 */
 const elapsed = () => {
-  const ms = Date.now() - t0;
-  return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
+  const ms = Date.now() - stepStart;
+  stepStart = Date.now();
+  return fmtMs(ms);
 };
 
 const cookies = new Map();
@@ -286,7 +290,13 @@ async function main() {
   /* 3. 档案（来自登录响应，不额外请求） */
   const p = loginBody.profile || {};
   if (p.name || p.college) {
-    ok("档案", `${p.grade || "—"} · ${p.levelName || "—"} · ${p.major || "—"}`);
+    ok("档案", `${p.grade || "—"} · ${p.levelName || "—"} · ${p.major || "专业未取到"}`);
+    // 专业/班级来自教务单点，失败时登录不报错但字段为空，这里必须说清楚
+    if (!loginBody.jwkwOk) {
+      console.log(
+        `      → 教务单点未成功，专业/班级取不到${loginBody.jwkwError ? `（${loginBody.jwkwError}）` : ""}；课表不受影响`
+      );
+    }
   } else {
     bad("档案", "登录成功但档案为空", "学籍接口口径可能变了（userInfo.json），把上面消息发我。");
   }
