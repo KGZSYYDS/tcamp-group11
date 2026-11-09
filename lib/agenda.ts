@@ -1,4 +1,5 @@
 import type { CalEvent, Checkin, Ddl, EventKind } from "./types";
+import type { MyEvent, TimetableSession } from "./local-store";
 
 /** 原型视图里的四类日程 */
 export type AgendaType = "course" | "notice" | "personal";
@@ -45,6 +46,8 @@ const KIND_LABEL: Record<EventKind, string> = {
   exam: "考试",
   pe: "体测",
   activity: "活动",
+  meeting: "会议",
+  deadline: "截止",
   other: "日程",
 };
 
@@ -177,24 +180,6 @@ export function mapCheckin(checkin: Checkin): AgendaEvent | null {
   };
 }
 
-/** 合并三张表，并按开始时间排序 */
-export function buildAgenda(
-  events: CalEvent[],
-  ddls: Ddl[],
-  checkins: Checkin[],
-  ctx: MapContext = {}
-): AgendaEvent[] {
-  const merged = [
-    ...events.map((item) => mapCalEvent(item, ctx)),
-    ...ddls.map(mapDdl),
-    ...checkins.map(mapCheckin),
-  ].filter((item): item is AgendaEvent => item !== null);
-
-  return merged.sort(
-    (a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start)
-  );
-}
-
 /**
  * 一条事件归属的「筛选类别」集合。
  *
@@ -226,4 +211,75 @@ export function durationMinutes(event: AgendaEvent): number {
   const [sh, sm] = event.start.split(":").map(Number);
   const [eh, em] = event.end.split(":").map(Number);
   return Math.max(0, eh * 60 + em - (sh * 60 + sm));
+}
+
+/** 课表会话 → 视图事件。课表是本机数据，归属 personal 但 visual 为 course */
+export function mapTimetable(session: TimetableSession): AgendaEvent | null {
+  const start = parseDate(session.startAt);
+  if (!start) return null;
+  const end = resolveEnd(start, parseDate(session.endAt), Boolean(session.allDay));
+  return {
+    id: `tt-${session.title}-${session.startAt}`,
+    title: session.title,
+    date: dateKey(start),
+    start: session.allDay ? "00:00" : timeKey(start),
+    end: session.allDay ? "23:59" : timeKey(end),
+    location: session.location || session.course || "",
+    type: "course",
+    visual: "course",
+    source: "课表",
+    note: session.teacher ? `${session.teacher} 老师` : undefined,
+    allDay: Boolean(session.allDay),
+    rawKind: "other",
+    deletable: false,
+    scope: "personal",
+    course: session.course,
+  };
+}
+
+/** 本机个人事件（MyEvent）→ 视图事件 */
+export function mapMyEvent(ev: MyEvent): AgendaEvent | null {
+  const start = parseDate(ev.startAt);
+  if (!start) return null;
+  const end = resolveEnd(start, parseDate(ev.endAt), ev.allDay);
+  return {
+    id: `my-${ev.id}`,
+    title: ev.title,
+    date: dateKey(start),
+    start: ev.allDay ? "00:00" : timeKey(start),
+    end: ev.allDay ? "23:59" : timeKey(end),
+    location: ev.location || ev.course || "",
+    type: "personal",
+    visual: "personal",
+    source: "个人",
+    note: ev.note,
+    link: ev.link,
+    allDay: ev.allDay,
+    rawKind: "other",
+    deletable: true,
+    scope: "personal",
+    course: ev.course,
+  };
+}
+
+/** 合并公共事件表 + 本机三张表（ddls/checkins/myEvents）+ 课表，按开始时间排序 */
+export function buildAgenda(
+  events: CalEvent[],
+  ddls: Ddl[],
+  checkins: Checkin[],
+  ctx: MapContext = {},
+  myEvents: MyEvent[] = [],
+  timetable: TimetableSession[] = []
+): AgendaEvent[] {
+  const merged = [
+    ...events.map((item) => mapCalEvent(item, ctx)),
+    ...ddls.map(mapDdl),
+    ...checkins.map(mapCheckin),
+    ...myEvents.map(mapMyEvent),
+    ...timetable.map(mapTimetable),
+  ].filter((item): item is AgendaEvent => item !== null);
+
+  return merged.sort(
+    (a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start)
+  );
 }

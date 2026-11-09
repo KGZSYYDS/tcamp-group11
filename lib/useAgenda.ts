@@ -4,18 +4,25 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CalEvent, Checkin, Ddl, EventKind, Profile } from "@/lib/types";
 import {
   createEvent,
-  deleteCheckin,
-  deleteDdl,
   deleteEvent,
   getProfile,
-  listCheckins,
-  listDdls,
   listEvents,
 } from "@/lib/data";
+import {
+  addMyEvent,
+  loadCheckins,
+  loadDdls,
+  loadMyEvents,
+  loadTimetable,
+  removeCheckin,
+  removeDdl,
+  removeMyEvent,
+} from "@/lib/local-store";
+import type { LocalTimetable } from "@/lib/local-store";
 import { buildAgenda, dateKey } from "@/lib/agenda";
 import type { AgendaEvent } from "@/lib/agenda";
 
-export type AgendaSource = "events" | "ddls" | "checkins";
+export type AgendaSource = "events" | "ddls" | "checkins" | "my" | "timetable";
 
 export interface AgendaState {
   events: AgendaEvent[];
@@ -41,26 +48,30 @@ export interface AgendaState {
   removeAgendaEvent: (event: AgendaEvent) => Promise<void>;
 }
 
-/** 判断某条视图事件来自哪张后端表，删除时据此分发 */
+/** 判断某条视图事件来自哪个数据源，删除时据此分发 */
 function sourceOf(event: AgendaEvent): AgendaSource {
   if (event.rawKind === "ddl") return "ddls";
   if (event.rawKind === "checkin") return "checkins";
+  if (event.id.startsWith("my-")) return "my";
+  if (event.id.startsWith("tt-")) return "timetable";
   return "events";
 }
 
-/** 视图 id 前缀是 `event-` / `ddl-` / `checkin-`，剥掉后得到数据库主键 */
+/** 视图 id 前缀是 `event-` / `ddl-` / `checkin-` / `my-` / `tt-`，剥掉后得到主键 */
 function rawId(event: AgendaEvent): string {
-  return event.id.replace(/^(event|ddl|checkin)-/, "");
+  return event.id.replace(/^(event|ddl|checkin|my|tt-[^-]+-)/, "");
 }
 
 /**
- * 把后端「三张表」聚合成原型四视图需要的一份日程流。
- * 所有读写都仍然走 lib/data.ts 的既有函数，因此云同步、RLS、插件导入逻辑不受影响。
+ * 数据来源：云库 public events（listEvents） + 本机 ddls / checkins / myEvents / timetable。
+ * 云库只取公共事件，personal 行在服务端已被过滤；个人数据全部留在浏览器本地。
  */
 export function useAgenda(currentUserId: string): AgendaState {
   const [rawEvents, setRawEvents] = useState<CalEvent[]>([]);
   const [rawDdls, setRawDdls] = useState<Ddl[]>([]);
   const [rawCheckins, setRawCheckins] = useState<Checkin[]>([]);
+  const [rawMy, setRawMy] = useState<ReturnType<typeof loadMyEvents>>([]);
+  const [rawTt, setRawTt] = useState<LocalTimetable["events"]>([]);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
@@ -75,17 +86,20 @@ export function useAgenda(currentUserId: string): AgendaState {
 
   const refresh = useCallback(async () => {
     try {
-      const [events, ddls, checkins, prof] = await Promise.all([
+      // 云库只取公共事件 + profile；个人数据从本机同步读取
+      const [events, prof] = await Promise.all([
         listEvents(),
-        listDdls(),
-        listCheckins(),
         getProfile().catch(() => null),
       ]);
       if (!mounted.current) return;
       setRawEvents(events);
-      setRawDdls(ddls);
-      setRawCheckins(checkins);
       setProfile(prof);
+      // 本机数据（localStorage）是同步 API
+      setRawDdls(loadDdls());
+      setRawCheckins(loadCheckins());
+      setRawMy(loadMyEvents());
+      const tt = loadTimetable();
+      setRawTt(tt ? tt.events : []);
       setError("");
     } catch (e) {
       if (!mounted.current) return;
@@ -99,12 +113,29 @@ export function useAgenda(currentUserId: string): AgendaState {
     void refresh();
   }, [refresh]);
 
+  // 监听本机存储变化（其它 Tab 写入 / 导入），同步刷新
+  useEffect(() => {
+    const onStorage = () => {
+      setRawDdls(loadDdls());
+      setRawCheckins(loadCheckins());
+      setRawMy(loadMyEvents());
+      const tt = loadTimetable();
+      setRawTt(tt ? tt.events : []);
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
   const events = useMemo(
-    () => buildAgenda(rawEvents, rawDdls, rawCheckins, { currentUserId }),
-    [rawEvents, rawDdls, rawCheckins, currentUserId]
+    () => buildAgenda(rawEvents, rawDdls, rawCheckins, { currentUserId }, rawMy, rawTt),
+    [rawEvents, rawDdls, rawCheckins, rawMy, rawTt, currentUserId]
   );
 
-  /** 新建日程：统一落 events 表，与「粘贴导入」「插件同步」写入同一张表 */
+  /**
+   * 新建日程：
+   * - scope=personal → 本机 MyEvent
+   * - 其它 scope（school/college/grade/...）→ 云库 events 表
+   */
   const createAgendaEvent = useCallback<AgendaState["createAgendaEvent"]>(
     async (input) => {
       const [sh, sm] = input.start.split(":").map(Number);
@@ -117,9 +148,25 @@ export function useAgenda(currentUserId: string): AgendaState {
       let endDate = new Date(
         `${input.date}T${String(eh).padStart(2, "0")}:${String(em).padStart(2, "0")}:00`
       );
-      // 结束早于开始视为跨日，顺延到第二天
       if (Number.isNaN(endDate.getTime()) || endDate <= startDate) {
         endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
+      }
+
+      if ((input.scope || "personal") === "personal") {
+        addMyEvent({
+          kind: input.kind,
+          title: input.title,
+          startAt: startDate.toISOString(),
+          endAt: endDate.toISOString(),
+          allDay: Boolean(input.allDay),
+          link: input.link,
+          course: input.course,
+          location: input.location,
+          note: input.note,
+        });
+        // 本机数据，同步刷新
+        setRawMy(loadMyEvents());
+        return;
       }
 
       await createEvent({
@@ -141,18 +188,23 @@ export function useAgenda(currentUserId: string): AgendaState {
     [refresh]
   );
 
-  /** 删除：按来源表分发，DDL / 签到走各自接口，不会误删到 events */
+  /** 删除：按数据源分发，不会误删其它表 */
   const removeAgendaEvent = useCallback<AgendaState["removeAgendaEvent"]>(
     async (event) => {
-      const id = rawId(event);
       const source = sourceOf(event);
-      if (source === "ddls") await deleteDdl(id);
-      else if (source === "checkins") await deleteCheckin(id);
-      else await deleteEvent(id);
-
-      if (source === "ddls") setRawDdls((prev) => prev.filter((d) => d.id !== id));
-      else if (source === "checkins") setRawCheckins((prev) => prev.filter((c) => c.id !== id));
-      else setRawEvents((prev) => prev.filter((e) => e.id !== id));
+      if (source === "ddls") {
+        removeDdl(rawId(event));
+        setRawDdls(loadDdls());
+      } else if (source === "checkins") {
+        removeCheckin(rawId(event));
+        setRawCheckins(loadCheckins());
+      } else if (source === "my") {
+        removeMyEvent(rawId(event));
+        setRawMy(loadMyEvents());
+      } else {
+        await deleteEvent(rawId(event));
+        setRawEvents((prev) => prev.filter((e) => e.id !== rawId(event)));
+      }
     },
     []
   );
@@ -187,7 +239,6 @@ export function filterByProfile(
     if (!item.scope || item.scope === "personal" || item.scope === "school") return true;
     if (!onlyRelated) return true;
     if (item.scope === "college") {
-      // 画像没填学院 → 无法判断，默认显示；填了但不匹配才过滤
       if (!profile?.college) return true;
       return item.college === profile.college;
     }
@@ -196,7 +247,6 @@ export function filterByProfile(
       return item.grade === profile.grade;
     }
     if (item.scope === "undergraduate" || item.scope === "postgraduate" || item.scope === "doctoral") {
-      // 画像没填培养层次 → 无法判断，默认显示
       if (!profile?.level) return true;
       return item.scope === profile.level;
     }
