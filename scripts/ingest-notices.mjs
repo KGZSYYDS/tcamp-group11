@@ -28,6 +28,7 @@ import fs from "fs";
 import path from "path";
 import { extractDeadline, isActionableDeadline, isFacultyDeadline } from "../lib/deadline.mjs";
 import { pickEventTime } from "../lib/parse-time.mjs";
+import { extractLocation } from "../lib/location.mjs";
 
 const ENDPOINT = "https://szu-calendar.app.workbuddy.host";
 const KEY = "wbpk_WzXwYj6XGdnn7m7c2NTc2V_k6ZmPeTV5hMYlO7DXtHIUckhNgKMaVZy";
@@ -94,6 +95,8 @@ function extractWhen(item) {
 function toRows(item) {
   const when = extractWhen(item);
   const kind = classify(item.title || "", item.category);
+  // 地点必须从 content 全文抽：note 只截了前 300 字，95% 的正文超过这个长度
+  const loc = extractLocation(item.content || "");
   const rows = [];
 
   const baseNote = [
@@ -112,6 +115,7 @@ function toRows(item) {
     scope: "school",
     source: SOURCE,
     source_url: item.url,
+    location: loc.location,
   };
 
   // 截止行：只收学生能用上的（老师申报项目、数据库试用到期这些不进日历）
@@ -197,6 +201,11 @@ async function main() {
   console.log(`截止行 ${ddlRows.length} 条，其中未过期 ${liveDdl.length} 条`);
 
   if (DRY) {
+    console.log("\n--dry-run 地点（前 10 条）：");
+    for (const r of rows.filter((x) => x.location).slice(0, 10)) {
+      console.log(`  ${r.location}   ← ${r.title.slice(0, 34)}`);
+    }
+
     console.log("\n--dry-run 截止行（前 8 条）：");
     for (const r of liveDdl.slice(0, 8)) {
       console.log(`  ${r.start_at.slice(0, 16)}  ${r.title.slice(0, 40)}`);
