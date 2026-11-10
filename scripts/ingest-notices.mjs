@@ -131,6 +131,8 @@ function toRows(item) {
     source: SOURCE,
     source_url: i === 0 ? item.url : `${item.url}#s${i + 1}`,
     location,
+    // 解析是否真的找到了活动时间。找不到时不能拿发布日期去覆盖库里已有的时间。
+    _trusted: when.found,
   }));
 
   // 截止行：只收学生能用上的（老师申报项目、数据库试用到期这些不进日历）
@@ -154,6 +156,7 @@ function toRows(item) {
         source: SOURCE,
         // 同一篇通知的活动行与截止行共用一个 url，靠后缀区分身份
         source_url: `${item.url}#ddl`,
+        _trusted: true,
       });
     }
   }
@@ -172,22 +175,19 @@ function toRows(item) {
  * 不限定 source：插件的 gwt-sync 与本次的 board 指向同一篇通知时，
  * 保留先入库的那条（插件那条通常经过 AI 解析，字段更全）。
  */
-async function existingUrls() {
-  const urls = new Set();
-  let offset = 0;
-  const pageSize = 1000;
-  for (;;) {
-    const res = await fetch(
-      `${TABLE}?select=source_url&source_url=not.is.null&limit=${pageSize}&offset=${offset}`,
-      { headers: HEADERS }
-    );
-    if (!res.ok) throw new Error(`读取已有数据失败 ${res.status}: ${await res.text()}`);
-    const rows = await res.json();
-    for (const r of rows) if (r.source_url) urls.add(r.source_url);
-    if (rows.length < pageSize) break;
-    offset += pageSize;
+async function existingRows() {
+  const map = new Map();
+  for (let offset = 0; ; offset += 1000) {
+    const url =
+      `${TABLE}?select=id,source_url,start_at,end_at,all_day,location` +
+      `&source_url=not.is.null&order=id&limit=1000&offset=${offset}`;
+    const res = await fetch(url, { headers: HEADERS });
+    if (!res.ok) throw new Error(`读取已有行失败 ${res.status}`);
+    const page = await res.json();
+    for (const r of page) if (r.source_url) map.set(r.source_url, r);
+    if (page.length < 1000) break;
   }
-  return urls;
+  return map;
 }
 
 async function main() {
@@ -226,15 +226,73 @@ async function main() {
       console.log(`  ${r.start_at.slice(0, 16)}  ${r.title.slice(0, 40)}`);
       console.log(`      ${r.note.split("｜")[1] || ""}`);
     }
+
+    console.log("\n--dry-run 时间（前 8 条带结束时间的）：");
+    for (const r of rows.filter((x) => x.end_at).slice(0, 8)) {
+      console.log(`  ${r.start_at.slice(11, 16)}–${r.end_at.slice(11, 16)}  ${r.title.slice(0, 34)}`);
+    }
+  }
+
+  console.log("读取库内已有记录……");
+  const existing = await existingRows();
+
+  // 通知改期是常事：已存在的行不再一律跳过，而是比对时间，变了就更新。
+  // 这样「学校把 11 月 12 日改成 11 月 15 日」能自动跟上，不用等人工回填。
+  const todo = [];
+  const updates = [];
+  for (const r of rows) {
+    const cur = existing.get(r.source_url);
+    if (!cur) {
+      todo.push(r);
+      continue;
+    }
+    // 没抽到活动时间的行只允许「新增」，不允许改已有记录，
+    // 否则一次规则回归就会把整批时间退化成发布日期
+    if (r._trusted === false) continue;
+    const patch = {};
+    if (cur.start_at !== r.start_at) patch.start_at = r.start_at;
+    if ((cur.end_at ?? null) !== (r.end_at ?? null)) patch.end_at = r.end_at ?? null;
+    if (Boolean(cur.all_day) !== Boolean(r.all_day)) patch.all_day = r.all_day;
+    // 地点只补空值，不覆盖人工改过的
+    if (!cur.location && r.location) patch.location = r.location;
+    if (Object.keys(patch).length) updates.push({ id: cur.id, patch, title: r.title });
+  }
+
+  console.log(
+    `库里已有 ${existing.size} 条带 source_url 的记录：需新增 ${todo.length} 条，需更新 ${updates.length} 条`
+  );
+
+  if (DRY) {
+    console.log(`\n--dry-run：会新增 ${todo.length} 条，会更新 ${updates.length} 条（未写库）`);
+    for (const u of updates.slice(0, 6)) {
+      console.log(`  更新 #${u.id} ${u.title.slice(0, 30)}  ${JSON.stringify(u.patch)}`);
+    }
     return;
   }
 
-  console.log("读取库内已有 source_url……");
-  const exists = await existingUrls();
-  const todo = rows.filter((r) => !exists.has(r.source_url));
-  console.log(`库里已有 ${exists.size} 条带 source_url 的记录，本次需新增 ${todo.length} 条`);
+  if (updates.length) {
+    let patched = 0;
+    let patchFailed = 0;
+    for (const u of updates) {
+      const res = await fetch(`${TABLE}?id=eq.${u.id}`, {
+        method: "PATCH",
+        headers: { ...HEADERS, Prefer: "return=representation" },
+        body: JSON.stringify(u.patch),
+      });
+      const changed = res.ok ? await res.json() : null;
+      if (!Array.isArray(changed) || changed.length === 0) {
+        patchFailed += 1;
+      } else {
+        patched += 1;
+      }
+    }
+    console.log(`  更新 ${patched} 条，失败 ${patchFailed} 条（失败多为插件建的行，受行级权限限制）`);
+  }
 
   if (todo.length === 0) return;
+
+  // _trusted 是内部标记，不能发给数据库
+  for (const r of todo) delete r._trusted;
 
   let added = 0;
   let failed = 0;
