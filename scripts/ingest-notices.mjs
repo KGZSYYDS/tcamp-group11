@@ -95,8 +95,10 @@ function extractWhen(item) {
 function toRows(item) {
   const when = extractWhen(item);
   const kind = classify(item.title || "", item.category);
-  // 地点必须从 content 全文抽：note 只截了前 300 字，95% 的正文超过这个长度
+  // 地点必须从 content 全文抽：note 只截了前 300 字，95% 的正文超过这个长度。
+  // 采集方若已经带了 location（如插件/群聊），优先用它，别覆盖人工或上游的结果。
   const loc = extractLocation(item.content || "");
+  const location = (item.location && String(item.location).trim()) || loc.location;
   const rows = [];
 
   const baseNote = [
@@ -115,7 +117,7 @@ function toRows(item) {
     scope: "school",
     source: SOURCE,
     source_url: item.url,
-    location: loc.location,
+    location,
   };
 
   // 截止行：只收学生能用上的（老师申报项目、数据库试用到期这些不进日历）

@@ -16,6 +16,7 @@
     "meetings:all": "node scripts/collect-meetings.mjs --all-groups",
     "meetings:publish": "node scripts/collect-meetings.mjs --all-groups --publish",
     "ingest:notices": "node scripts/ingest-notices.mjs",
+    "sync:notices": "node scripts/collect-board.mjs && node scripts/collect-web.mjs && node scripts/ingest-notices.mjs",
     "backfill:dates": "node scripts/backfill-dates.mjs",
     "selfcheck": "node scripts/selfcheck.mjs",
     "test": "node scripts/test-deadline.mjs && node scripts/test-parse-time.mjs && node scripts/test-reminders.mjs && node scripts/test-relevance.mjs && node scripts/test-categorize.mjs && node scripts/test-location.mjs",
