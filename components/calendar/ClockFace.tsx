@@ -111,7 +111,6 @@ export function EventRow({
         <span className="event-type">
           {meta.name}
           {event.source ? ` · ${event.source}` : ""}
-          {event.boardTopic ? ` · ${event.boardTopic}` : ""}
           {minutes > 0 && !event.allDay ? ` · ${minutes} 分钟` : ""}
         </span>
         <h3>{event.title}</h3>

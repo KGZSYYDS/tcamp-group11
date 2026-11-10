@@ -26,8 +26,6 @@
  */
 import fs from "fs";
 import path from "path";
-import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { extractDeadline, isActionableDeadline, isFacultyDeadline } from "../lib/deadline.mjs";
 import { pickEventTime } from "../lib/parse-time.mjs";
 import { extractLocation } from "../lib/location.mjs";
@@ -194,16 +192,6 @@ async function existingRows() {
   return map;
 }
 
-function startBoardClassification() {
-  if (SOURCE !== "board" || process.env.BOARD_AI_ENABLED !== "1" ||
-      !process.env.BOARD_AI_BASE_URL || !process.env.BOARD_AI_API_KEY) return;
-  const worker = spawn(process.execPath, [fileURLToPath(new URL("./classify-board.mjs", import.meta.url)), FILE], {
-    detached: true, stdio: "ignore", windowsHide: true,
-  });
-  worker.on("error", () => console.warn("后台分类未启动，可稍后运行 npm run classify:board"));
-  worker.unref();
-}
-
 async function main() {
   if (!fs.existsSync(FILE)) {
     console.error(
@@ -303,10 +291,7 @@ async function main() {
     console.log(`  更新 ${patched} 条，失败 ${patchFailed} 条（失败多为插件建的行，受行级权限限制）`);
   }
 
-  if (todo.length === 0) {
-    startBoardClassification();
-    return;
-  }
+  if (todo.length === 0) return;
 
   // _trusted 是内部标记，不能发给数据库
   for (const r of todo) delete r._trusted;
@@ -331,7 +316,6 @@ async function main() {
   }
 
   console.log(`\n\n完成：新增 ${added} 条，失败 ${failed} 条`);
-  startBoardClassification();
 }
 
 main().catch((e) => {

@@ -133,7 +133,6 @@ export default function EventDialog({
               <span className="pill">
                 {VISUAL_META[state.event.visual].name}
                 {state.event.source ? ` · ${state.event.source}` : ""}
-                {state.event.boardTopic ? ` · ${state.event.boardTopic}` : ""}
               </span>
               <h2>{state.event.title}</h2>
               <p className="detail-description">{state.event.note || "为这件事留出时间，从容开始。"}</p>
