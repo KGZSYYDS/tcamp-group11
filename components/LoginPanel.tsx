@@ -24,20 +24,23 @@ type Result = {
  *
  * 两条路，取决于部署位置：
  *
- * 【公网】用「浏览器授权」
- *   学校的统一认证按**登录地点**风控。服务端在上海机房、人在深圳，密码登录会被
- *   判定为「异地登录」，插一层多因子认证（短信/企业微信），机器永远过不去。
- *   但实测登录票据（CASTGC）不绑 IP —— 所以让用户在自己浏览器里完成登录
- *   （同城，不触发风控），只把票据交过来换会话。密码因此完全不经过服务器。
+ * 【公网】导入浏览器会话
+ *   学校按**登录地点**风控。服务端在上海机房、人在深圳：无论用密码，还是用
+ *   浏览器签发的 TGT 去换票，CAS 都会把这次请求判成异地，插一层 reAuthCheck
+ *   多因子认证（短信/企业微信）—— 机器永远过不去（线上实测两条路都会 302 到
+ *   reAuthLoginView）。但登录完成后办事大厅/教务自己发的会话 cookie 不再经过
+ *   CAS，所以让用户在自己浏览器里登录（同城，不触发风控），只把 cookie 交过来。
+ *   密码和票据都不需要经过服务器。
  *
  * 【本机】直接输学号和密码
  *   同一台机器、同一个网络，不触发异地风控，一步到位。
  */
 export default function LoginPanel({ onLoggedIn }: Props) {
-  const [mode, setMode] = useState<"browser" | "password">(IS_PUBLIC_DEPLOY ? "browser" : "password");
+  const [mode, setMode] = useState<"cookie" | "password">(IS_PUBLIC_DEPLOY ? "cookie" : "password");
   const [studentId, setStudentId] = useState("");
   const [password, setPassword] = useState("");
-  const [tgt, setTgt] = useState("");
+  const [ehallCookie, setEhallCookie] = useState("");
+  const [jwkwCookie, setJwkwCookie] = useState("");
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState("");
   const [error, setError] = useState("");
@@ -71,7 +74,8 @@ export default function LoginPanel({ onLoggedIn }: Props) {
       setHint(`课表这次没取到：${data.warning}。不影响使用，可以稍后再同步一次。`);
     }
     setPassword("");
-    setTgt("");
+    setEhallCookie("");
+    setJwkwCookie("");
     onLoggedIn();
   }
 
@@ -81,8 +85,8 @@ export default function LoginPanel({ onLoggedIn }: Props) {
       setHint("遇到这种情况不要反复点登录 —— 连续失败只会让风控窗口更长。");
     }
     if (data.code === "REAUTH") {
-      setHint("这不是密码错误。学校把这次登录判定为异地，要求多因子认证，服务端过不去 —— 请改用上面的「浏览器授权」。");
-      setMode("browser");
+      setHint("这不是密码错误。学校把这次登录判定为异地，要求多因子认证，服务端过不去 —— 请改用「导入浏览器会话」。");
+      setMode("cookie");
     }
     const d = data.debug;
     if (d) {
@@ -136,25 +140,25 @@ export default function LoginPanel({ onLoggedIn }: Props) {
     }
   }
 
-  async function submitTgt(e: React.FormEvent) {
+  async function submitCookies(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     setHint("");
     setDiag([]);
 
-    if (!/^TGT-/i.test(tgt.trim())) {
-      setError("请粘贴以 TGT- 开头的登录票据（CASTGC 的值）");
+    if (!ehallCookie.trim()) {
+      setError("请先粘贴办事大厅的 Cookie");
       return;
     }
 
     setBusy(true);
-    setStep("正在用登录票据建立会话…");
+    setStep("正在用浏览器会话读取课表…");
 
     try {
-      const res = await fetch("/api/auth/tgt", {
+      const res = await fetch("/api/auth/cookies", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tgt: tgt.trim() }),
+        body: JSON.stringify({ ehall: ehallCookie.trim(), jwkw: jwkwCookie.trim() }),
       });
       const data: Result = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) {
@@ -173,6 +177,8 @@ export default function LoginPanel({ onLoggedIn }: Props) {
   const tabBase = "rounded-lg px-3 py-1.5 text-xs transition";
   const tabOn = "bg-white text-indigo-700 shadow-sm";
   const tabOff = "text-gray-500 hover:text-gray-700";
+  const areaCls =
+    "w-full rounded-lg border border-gray-200 px-3 py-2 font-mono text-[11px] leading-relaxed outline-none focus:border-indigo-400";
 
   return (
     <div>
@@ -182,52 +188,75 @@ export default function LoginPanel({ onLoggedIn }: Props) {
       </p>
 
       <div className="mb-4 inline-flex rounded-lg bg-gray-100 p-1">
-        <button type="button" onClick={() => setMode("browser")} className={`${tabBase} ${mode === "browser" ? tabOn : tabOff}`}>
-          浏览器授权
+        <button type="button" onClick={() => setMode("cookie")} className={`${tabBase} ${mode === "cookie" ? tabOn : tabOff}`}>
+          导入浏览器会话
         </button>
         <button type="button" onClick={() => setMode("password")} className={`${tabBase} ${mode === "password" ? tabOn : tabOff}`}>
           学号密码
         </button>
       </div>
 
-      {mode === "browser" ? (
-        <form onSubmit={submitTgt}>
+      {mode === "cookie" ? (
+        <form onSubmit={submitCookies}>
           <ol className="mb-3 space-y-2 text-xs leading-relaxed text-gray-600">
             <li>
               <span className="mr-1 font-medium text-gray-800">1.</span>
-              打开{" "}
+              在<b>你自己的浏览器</b>里打开{" "}
               <a
-                href="https://authserver.szu.edu.cn/authserver/login"
+                href="https://ehall.szu.edu.cn"
                 target="_blank"
                 rel="noreferrer"
                 className="text-indigo-600 underline decoration-indigo-300 underline-offset-2"
               >
-                统一身份认证
+                办事大厅
               </a>{" "}
-              并登录（在你自己电脑上，这样不会被当成异地）。
+              并登录（同城，不会触发异地风控）。
             </li>
             <li>
               <span className="mr-1 font-medium text-gray-800">2.</span>
-              登录后按 <kbd className="rounded border border-gray-300 bg-gray-50 px-1">F12</kbd> →{" "}
-              <b>Application / 应用</b> → <b>Cookies</b> →{" "}
-              <code className="text-[11px]">https://authserver.szu.edu.cn</code>，找到{" "}
-              <code className="text-[11px]">CASTGC</code>，双击它的 Value 全选复制。
+              按 <kbd className="rounded border border-gray-300 bg-gray-50 px-1">F12</kbd> 打开开发者工具 →{" "}
+              <b>Network / 网络</b> → 刷新页面 → 点任意一条发往办事大厅的请求 →{" "}
+              <b>Headers</b> 里找到 <code className="text-[11px]">Cookie</code>，复制它<b>后面那一整段值</b>。
+              <span className="block text-gray-400">
+                更省事：右键那条请求 → <b>Copy</b> → <b>Copy as cURL</b>，把整段粘过来也行。
+              </span>
             </li>
             <li>
               <span className="mr-1 font-medium text-gray-800">3.</span>
-              粘贴到下面。
+              同一步骤打开教务{" "}
+              <a
+                href="https://jwkw.szu.edu.cn/jwapp/sys/homeapp/index.do"
+                target="_blank"
+                rel="noreferrer"
+                className="text-indigo-600 underline decoration-indigo-300 underline-offset-2"
+              >
+                jwkw.szu.edu.cn
+              </a>
+              （会自动单点登录），同样复制一份 Cookie —— 课表的周次靠它，缺了会同步不了课表。
             </li>
           </ol>
 
           <label className="block text-sm">
-            <span className="mb-1 block text-gray-600">登录票据（CASTGC）</span>
+            <span className="mb-1 block text-gray-600">办事大厅 Cookie</span>
             <textarea
-              value={tgt}
-              onChange={(e) => setTgt(e.target.value.trim())}
+              value={ehallCookie}
+              onChange={(e) => setEhallCookie(e.target.value)}
               rows={2}
               spellCheck={false}
-              placeholder="TGT-xxxxxxxx-…"
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 font-mono text-xs outline-none focus:border-indigo-400"
+              placeholder="JSESSIONID=…; MOD_AUTH_CAS=…"
+              className={areaCls}
+            />
+          </label>
+
+          <label className="mt-3 block text-sm">
+            <span className="mb-1 block text-gray-600">教务 Cookie（用于定位教学周）</span>
+            <textarea
+              value={jwkwCookie}
+              onChange={(e) => setJwkwCookie(e.target.value)}
+              rows={2}
+              spellCheck={false}
+              placeholder="route=…; …"
+              className={areaCls}
             />
           </label>
 
@@ -236,12 +265,12 @@ export default function LoginPanel({ onLoggedIn }: Props) {
             disabled={busy}
             className="mt-3 w-full rounded-lg bg-indigo-600 py-2.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
           >
-            {busy ? step || "登录中…" : "用票据登录"}
+            {busy ? step || "登录中…" : "用浏览器会话登录"}
           </button>
 
           <p className="mt-3 text-[11px] leading-relaxed text-gray-400">
-            票据只用来换一次学校会话，<b>用完即弃、不写文件</b>；服务器保存的是换来的办事大厅会话。
-            它和密码一样属于敏感凭据，别发给别人。
+            Cookie 只用来代表你的登录状态，服务器不保存密码、也不保存登录票据；
+            会话文件按浏览器分开存放，和密码一样属于敏感凭据，别发给别人。
           </p>
         </form>
       ) : (
@@ -280,7 +309,7 @@ export default function LoginPanel({ onLoggedIn }: Props) {
 
           <p className="mt-3 text-[11px] leading-relaxed text-gray-400">
             {IS_PUBLIC_DEPLOY
-              ? "服务器不在校园所在地，密码登录常被学校判定为异地并弹出多因子认证 —— 遇到就走「浏览器授权」，那条路不受影响。"
+              ? "服务器不在校园所在地，密码登录几乎一定会被学校判定为异地并弹多因子认证 —— 公网请用「导入浏览器会话」。"
               : "密码只在本次请求里用于向学校换一次登录票据，不写文件、不进云端数据库。"}
           </p>
         </form>
