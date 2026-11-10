@@ -139,7 +139,7 @@ input:focus,textarea:focus,select:focus { outline:2px solid var(--brand); outlin
 .calendar-app .timeline-day.is-empty .timeline-date { display:flex; align-items:center; gap:3px; padding:7px 0; }.calendar-app .timeline-day.is-empty .timeline-date strong { font-size:14px; margin:0; }.calendar-app .timeline-day.is-empty .timeline-date small { display:none; }
 .calendar-app .timeline-day.is-empty .timeline-track { padding:8px 0 8px 18px; }.calendar-app .timeline-empty { margin:0; padding:0; font-size:10px; color:var(--secondary); }.calendar-app .timeline-sentinel { padding:12px; }
 .calendar-app .page-footer { display:none; }
-.calendar-app .dock-area { flex-shrink:0; position:fixed; left:50%; bottom:6px; transform:translateX(-50%); width:auto; min-width:160px; max-width:calc(100vw - 24px); margin:0; padding:0; z-index:40; transition:all .28s cubic-bezier(.22,1,.36,1); }
+.calendar-app .dock-area { flex-shrink:0; position:fixed; left:50%; bottom:max(6px,env(safe-area-inset-bottom)); transform:translateX(-50%); width:auto; min-width:160px; max-width:calc(100vw - 24px); margin:0; padding:0; z-index:40; transition:all .28s cubic-bezier(.22,1,.36,1); }
 .calendar-app .dock-area:before,.calendar-app .dock-caption { display:none; }
 /* 折叠态：灰色透明带状条 */
 .calendar-app .dock-area:not(.is-open) {
@@ -240,6 +240,9 @@ input:focus,textarea:focus,select:focus { outline:2px solid var(--brand); outlin
 
 .calendar-app .agenda-list { background:transparent; }
 .calendar-app .view-dock .is-active .dock-tile { background:var(--brand)!important; }
+.calendar-app .view-dock .dock-panel { align-items:center; }
+.calendar-app .view-dock .dock-face { gap:7px; }
+.calendar-app .view-dock .dock-name { font-size:13px; line-height:18px; font-weight:600; }
 .calendar-app .pill { background:var(--brand-soft); color:var(--brand); }
 @media(max-width:360px) { .calendar-app .date-navigation h2 { min-width:80px; }.calendar-app .date-navigation { gap:3px; }.calendar-app .today-button { margin-left:2px; padding:5px 8px; }.calendar-app .filter-group>button:not(.icon-button) { padding:5px 6px; } }
 @media(max-width:700px) { .login-shell { padding-top:16px; padding-bottom:16px; }.login-brand { margin-bottom:16px; }.login-brand>div:first-child { width:44px; height:44px; margin-bottom:8px; }.login-brand h1 { font-size:26px; }.login-brand p { font-size:12px; margin-top:6px; }.login-brand>div:last-child { display:none; }.login-shell>.bg-white { padding:20px; }.login-shell>div:last-child a { font-size:12px; } }
