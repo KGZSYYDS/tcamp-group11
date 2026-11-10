@@ -18,10 +18,11 @@
     "ingest:notices": "node scripts/ingest-notices.mjs",
     "backfill:dates": "node scripts/backfill-dates.mjs",
     "selfcheck": "node scripts/selfcheck.mjs",
-    "test": "node scripts/test-deadline.mjs && node scripts/test-parse-time.mjs && node scripts/test-reminders.mjs",
+    "test": "node scripts/test-deadline.mjs && node scripts/test-parse-time.mjs && node scripts/test-reminders.mjs && node scripts/test-relevance.mjs",
     "test:deadline": "node scripts/test-deadline.mjs",
     "test:parse-time": "node scripts/test-parse-time.mjs",
-    "test:reminders": "node scripts/test-reminders.mjs"
+    "test:reminders": "node scripts/test-reminders.mjs",
+    "test:relevance": "node scripts/test-relevance.mjs"
   },
   "dependencies": {
     "@fontsource-variable/manrope": "^5.3.0",

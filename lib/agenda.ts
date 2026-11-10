@@ -40,6 +40,10 @@ export interface AgendaEvent {
   course?: string;
   /** 已完成的 DDL 用于弱化展示 */
   done?: boolean;
+  /** 相关性分数 0–100：同一天内先看得分高的 */
+  score?: number;
+  /** 打分依据，用于 tooltip 解释为什么排在前面 */
+  reasons?: string[];
 }
 
 const KIND_LABEL: Record<EventKind, string> = {

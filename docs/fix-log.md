@@ -205,3 +205,28 @@
 - 没给 `dueAt` 加时区（畅课 UTC / 群聊 +08:00 / 课表本地串，三处口径不同是故意的）；
 - 没动 `lib/pipeline`、`lib/ingest`（同事的数据管道，尚未接界面）；
 - P2 批次（`requireLocal` 校验、`deleteEvent` 权限谓词、`szu-cal-hidden` 命名等）未处理。
+
+---
+
+## 六、功能移植：相关性打分（来自 `main` 的 `zhj/relevance`）
+
+**背景**：`main` 线上有同事（zhj）做的「相关性打分 + 按月加载」，`hwb` 上还没有。
+按 `docs/branch-divergence.md` 的方案 A 移植：**只搬打分，不搬按月加载**（原因见下）。
+
+**改法**
+- 新增 `lib/relevance.mjs` / `.d.mts` / `scripts/test-relevance.mjs`，原样搬入；
+- `lib/agenda.ts` 的 `AgendaEvent` 加 `score` / `reasons` 两个可选字段；
+- `lib/useAgenda.ts` 的 `filterByProfile` 改成打分制：`scope=school` 不再无条件放行，
+  改为「0–100 分 ≥ 45 才留」；同一天内按分数排序（`groupByDate`）。
+- 学院/年级仍走 `visibility.ts` 的归一化匹配（能认「计软」↔「计算机与软件」），
+  结论通过 `collegeMatched` / `gradeMatched` 传给打分函数，避免两套比较规则打架。
+
+**为什么不搬「按月加载」**：`hwb` 的 `data.ts` 已经做了 5 分钟共享缓存 + 在途复用（P1-9），
+按时间窗取数会和「整表缓存」的语义冲突：缓存命中时返回的是全量，按月的意义就没了。
+真要按月，得先把缓存改成按窗口分片，属于 P1-9 的二次设计，不在这次移植范围内。
+
+**验证**
+- `npx tsc --noEmit` 0 error；
+- `npm test` 57 条全过（截止 14 / 择时 12 / 提醒 18 / 相关性 13）；
+- 相关性用例覆盖：标题含本学院的全校通知过线、无信号的全校通知被筛、别的学院定向被压低、
+  已过期压分、个人事件恒 100。
