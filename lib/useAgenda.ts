@@ -7,6 +7,7 @@ import {
   deleteEvent,
   getProfile,
   listEvents,
+  subscribeEvents,
 } from "@/lib/data";
 import {
   addMyEvent,
@@ -21,8 +22,8 @@ import {
 } from "@/lib/local-store";
 import type { LocalTimetable } from "@/lib/local-store";
 import type { SzUser } from "@/lib/szu-types";
-import { sameAffiliation, sameGrade } from "@/lib/visibility";
-import { RELATED_THRESHOLD, scoreEvent } from "@/lib/relevance.mjs";
+import { sameAffiliation } from "@/lib/visibility";
+import { scoreEvent } from "@/lib/relevance.mjs";
 import { categoryOf, collegeNamesIn, isSchoolWide } from "@/lib/categorize.mjs";
 import { buildAgenda, dateKey } from "@/lib/agenda";
 import type { AgendaEvent } from "@/lib/agenda";
@@ -119,10 +120,12 @@ export function useAgenda(session: SzUser | null): AgendaState {
   }, [refreshLocal]);
 
   useEffect(() => {
+    const unsubscribe = subscribeEvents(setRawEvents);
     void refresh();
     void getProfile().then((p) => {
       if (mounted.current) setCloudProfile(p);
     }).catch(() => {});
+    return unsubscribe;
   }, [refresh]);
 
   // 监听本机存储变化（其它 Tab 写入 / 导入），同步刷新
@@ -135,11 +138,11 @@ export function useAgenda(session: SzUser | null): AgendaState {
     const local = timetable?.profile;
     const ownLocal = !session || !local?.studentId || local.studentId === session.studentId ? local : undefined;
     return {
-      college: session?.college || ownLocal?.college || cloudProfile?.college,
-      major: session?.major || ownLocal?.major || cloudProfile?.major,
-      grade: session?.grade || ownLocal?.grade || cloudProfile?.grade,
-      level: session?.level || ownLocal?.level || cloudProfile?.level,
-      courses: timetable?.courses || cloudProfile?.courses || [],
+      college: cloudProfile?.college || session?.college || ownLocal?.college,
+      major: cloudProfile?.major || session?.major || ownLocal?.major,
+      grade: cloudProfile?.grade || session?.grade || ownLocal?.grade,
+      level: cloudProfile?.level || session?.level || ownLocal?.level,
+      courses: ownLocal && timetable?.courses.length ? timetable.courses : cloudProfile?.courses || [],
     };
   }, [session, timetable, cloudProfile]);
 
@@ -237,27 +240,10 @@ export function useAgenda(session: SzUser | null): AgendaState {
   };
 }
 
-/**
- * 相关性过滤：个人数据与全校事件始终显示；
- * 学院 / 年级 / 培养层次类公共事件按画像匹配，与旧版 CalendarPanel 规则保持一致。
- *
- * 「不遗漏」原则：当 onlyRelated 开启但画像（profile）缺少判断所需的字段时，
- * 无法确定相关性的公共事件默认显示，而不是静默丢弃。只有画像有对应字段
- * 且明确不匹配时才过滤。这样用户没填学院/年级时不会莫名看不到学院通知。
- */
-/**
- * 相关性过滤 + 打分。
- *
- * 「仅看相关」原来是二元判断，且 scope=school 直接放行；但批量入库把 627 条通知
- * 全标成了 school，等于没筛。现在改成 0–100 分（lib/relevance.mjs），过 45 分才留。
- *
- * 学院/年级的归一化匹配仍交给 visibility.ts（它能认「计软」↔「计算机与软件」），
- * 结论通过 collegeMatched / gradeMatched 传给打分函数，避免两套比较规则打架。
- */
-export function filterByProfile(
+/** 计算画像匹配结果和同一天内的排序分数。 */
+export function scoreAgenda(
   events: AgendaEvent[],
   profile: Profile | null,
-  onlyRelated: boolean,
   hiddenIds: string[]
 ): AgendaEvent[] {
   const viewer = {
@@ -273,17 +259,21 @@ export function filterByProfile(
     // 公共通知按标题里有没有学院名判校园 / 个人 / 别的学院
     const colleges = collegeNamesIn(item.title);
     const viewerCollege = profile?.college || "";
+    const titleCollegeMatched = viewerCollege && colleges.length
+      ? colleges.some((college) => sameAffiliation(college, viewerCollege))
+      : undefined;
+    const schoolWideTitle = isSchoolWide(item.title);
     const category = categoryOf({
       source: item.source,
       rawKind: item.rawKind,
       scope: item.scope,
       hasCollege: colleges.length > 0,
-      schoolWide: isSchoolWide(item.title),
-      isMine: Boolean(viewerCollege) && colleges.some((c) => sameAffiliation(c, viewerCollege)),
+      schoolWide: schoolWideTitle,
+      isMine: Boolean(titleCollegeMatched),
     });
 
-    if (!item.scope || item.scope === "personal") {
-      return { ...item, category, score: 100, reasons: ["仅自己"] };
+    if (!item.scope || item.scope === "personal" || item.movedFromCampus) {
+      return { ...item, category, score: 100, related: true, reasons: ["仅自己"] };
     }
     const result = scoreEvent(
       {
@@ -292,31 +282,27 @@ export function filterByProfile(
         note: item.note,
         scope: item.scope,
         college: item.college,
-        grade: item.grade,
+        boardSubtype: item.boardSubtype,
         at: new Date(`${item.date}T${item.start || "00:00"}:00`),
         allDay: item.allDay,
         location: item.location,
+        titleCollegeMatched,
+        schoolWideTitle,
         collegeMatched:
           item.scope === "college" && item.college && profile?.college
             ? sameAffiliation(item.college, profile.college)
             : undefined,
-        gradeMatched:
-          item.scope === "grade" && item.grade && profile?.grade
-            ? sameGrade(item.grade, profile.grade)
-            : undefined,
       },
       viewer
     );
-    return { ...item, category, score: result.score, reasons: result.reasons };
+    return { ...item, category, ...result };
   });
 
-  return scored.filter((item) => {
-    if (hiddenIds.includes(item.id)) return false;
-    // 个人数据先校验归属：不是本人的一律不展示（上游已过滤，这里兜底）
-    if (!item.scope || item.scope === "personal") return true;
-    if (!onlyRelated) return true;
-    return (item.score ?? 100) >= RELATED_THRESHOLD;
-  });
+  return scored.filter((item) => !hiddenIds.includes(item.id));
+}
+
+export function isRelatedEvent(event: AgendaEvent): boolean {
+  return event.related !== false;
 }
 
 /** 视图层按日期分组，供月历 / 课表 / 时间轴直接取用 */

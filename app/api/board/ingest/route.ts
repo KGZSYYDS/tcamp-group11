@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createEvent, eventExistsBySourceUrl } from "@/lib/data";
 import { extractLocation } from "@/lib/location.mjs";
+import { boardGroup, writeBoardMetadata } from "@/lib/board-taxonomy.mjs";
 import type { EventKind } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -51,6 +52,8 @@ interface BoardItem {
   department?: string | null;
   publishedAt?: string | null;
   content?: string;
+  category?: string;
+  boardGroup?: string;
 }
 
 export async function POST(request: Request) {
@@ -80,15 +83,15 @@ export async function POST(request: Request) {
         skipped++;
         continue;
       }
+      const group = boardGroup(item.boardGroup) || boardGroup(item.category);
+      const note = [item.department, item.content?.slice(0, 300)].filter(Boolean).join("｜") || undefined;
       await createEvent({
         kind: classify(item.title),
         title: item.title.slice(0, 120),
         startAt: toStartAt(item.publishedAt),
         allDay: true,
         link: item.url,
-        note: [item.department, item.content?.slice(0, 300)]
-          .filter(Boolean)
-          .join("｜") || undefined,
+        note: group ? writeBoardMetadata(note, group.id) : note,
         location: extractLocation(item.content || "").location ?? undefined,
         scope: "school",
         source: "board",

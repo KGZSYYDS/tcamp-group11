@@ -49,6 +49,24 @@ input:focus,textarea:focus,select:focus { outline:2px solid var(--brand); outlin
 .calendar-app .filter-group>button:not(.icon-button) { padding:7px 10px; min-height:34px; font-size:11px; white-space:nowrap; flex-shrink:0; border-radius:9px; background:var(--surface); border:1px solid var(--edge); color:var(--text); }
 .calendar-app .filter-group i { flex-shrink:0; }
 .calendar-app .filter-group button[aria-pressed=false] { opacity:.55; }
+.calendar-app .related-filter-count { color:var(--brand); font-variant-numeric:tabular-nums; }
+.calendar-app .campus-filter-trigger { display:inline-flex; min-height:34px; border:1px solid var(--edge); border-radius:9px; background:var(--surface); }
+.calendar-app .campus-filter-trigger button { display:flex; align-items:center; justify-content:center; gap:5px; padding:0 7px; white-space:nowrap; font-size:11px; }
+.calendar-app .campus-filter-trigger button:first-child i { width:7px; height:7px; border-radius:50%; background:var(--notice-ink); }
+.calendar-app .campus-filter-trigger button + button { border-left:1px solid var(--edge); color:var(--secondary); }
+.calendar-app .campus-filter-trigger button:focus-visible { outline-offset:-2px; }
+.calendar-app .campus-filter-dialog { width:min(480px,calc(100% - 24px)); padding:0; }
+.campus-filter-body { display:grid; gap:12px; padding:16px; }
+.campus-filter-body header,.campus-filter-body footer { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+.calendar-app .campus-filter-body h2 { margin:0; }
+.campus-filter-body p,.campus-filter-groups summary { font-size:12px; color:var(--secondary); }
+.campus-filter-groups { display:grid; gap:6px; }
+.campus-filter-groups section { padding:8px 10px; border:1px solid var(--edge); border-radius:10px; }
+.campus-filter-groups label { display:flex; align-items:center; gap:6px; min-height:30px; font-size:13px; }
+.campus-filter-groups input { margin:0; accent-color:var(--brand); }
+.campus-group-heading label { font-weight:650; }
+.campus-filter-groups summary { cursor:pointer; padding:4px 0; }
+.campus-subtypes { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 8px; }
 .calendar-app .week-ribbon { margin:0 0 12px; padding:4px; background:var(--surface-soft); border:1px solid var(--edge); border-radius:12px; flex-shrink:0; gap:5px; }
 .calendar-app .week-ribbon button { padding:5px 0; gap:2px; color:var(--secondary); }
 .calendar-app .week-ribbon strong { font-size:17px; }
@@ -186,6 +204,8 @@ input:focus,textarea:focus,select:focus { outline:2px solid var(--brand); outlin
 @media (min-width:900px) and (max-height:800px) { .orbit-dial { width:min(100%,300px); }.calendar-app .orbit-card { padding-top:12px; }.orbit-time { font-size:34px; }.orbit-center>span { font-size:9px; } }
 @media (max-width:1000px) { .app-shell { padding:10px 16px 6px; gap:10px; }.app-header p { display:none; }.app-nav>button { padding:9px 12px; }.calendar-app .month-card { grid-template-columns:minmax(0,1fr) 240px; }.calendar-app .date-controls { gap:8px; }.calendar-app .filter-group { gap:4px; }.calendar-app .filter-group>button:not(.icon-button) { padding:7px; } }
 @media (max-width:700px) {
+  .calendar-app .campus-filter-trigger { min-height:32px; }
+  .calendar-app .campus-filter-trigger button { padding:0 5px; font-size:10px; }
   .app-shell { grid-template-columns:minmax(0,1fr); grid-template-rows:auto auto minmax(0,1fr); padding:8px 10px max(6px,env(safe-area-inset-bottom)); gap:6px; }
   .app-header { grid-row:1; grid-column:1/-1; }
   .app-header h1 { font-size:18px; }.app-header>div>div:first-child { width:32px; height:32px; border-radius:10px; }.app-header { gap:8px; }.app-header>button { padding:7px; font-size:11px; }

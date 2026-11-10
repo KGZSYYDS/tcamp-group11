@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, Clock3, MapPin, Plus, Search, Sparkles, X } from "lucide-react";
 import type { AgendaEvent } from "@/lib/agenda";
-import { agendaTimeLabel, dateKey } from "@/lib/agenda";
+import { agendaTimeLabel, boardCategoryLabel, dateKey } from "@/lib/agenda";
 import { VISUAL_META } from "./ClockFace";
 
 export type DialogKind = "detail" | "add" | "edit" | "search";
@@ -92,6 +92,7 @@ export default function EventDialog({
   }, [state]);
 
   const results = query.trim() ? search(query).slice(0, 30) : [];
+  const eventSource = state?.event && (boardCategoryLabel(state.event) || state.event.source);
 
   return (
     <dialog
@@ -132,7 +133,8 @@ export default function EventDialog({
               </div>
               <span className="pill">
                 {VISUAL_META[state.event.visual].name}
-                {state.event.source ? ` · ${state.event.source}` : ""}
+                {eventSource ? ` · ${eventSource}` : ""}
+                {state.event.boardGroup && !state.event.boardSubtype ? " · 待细分" : ""}
               </span>
               <h2>{state.event.title}</h2>
               <p className="detail-description">{state.event.note || "为这件事留出时间，从容开始。"}</p>
@@ -207,7 +209,7 @@ export default function EventDialog({
                   autoFocus
                 />
               </label>
-              <p className="form-help">搜索全部已加载的日程（考试、作业、签到与个人安排）。</p>
+              <p className="form-help">搜索当前筛选下的日程。</p>
               <div className="search-results">
                 {query.trim() && results.length === 0 ? (
                   <div className="empty">

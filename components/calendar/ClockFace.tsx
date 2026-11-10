@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { Coffee, ChevronLeft, ChevronRight } from "lucide-react";
 import type { AgendaEvent, AgendaVisual } from "@/lib/agenda";
-import { agendaTimeLabel, dateKey, durationMinutes, relevanceHint } from "@/lib/agenda";
+import { agendaTimeLabel, boardCategoryLabel, dateKey, durationMinutes, relevanceHint } from "@/lib/agenda";
 import { orbitTracks } from "@/lib/orbit";
 import { SlidingNumber } from "./ui/SlidingNumber";
 import { useReducedMotion } from "./ui/useMotionPreference";
@@ -87,6 +87,7 @@ export function EventRow({
 }) {
   const meta = VISUAL_META[event.visual];
   const minutes = durationMinutes(event);
+  const source = boardCategoryLabel(event) || event.source;
   return (
     <motion.button
       type="button"
@@ -111,7 +112,7 @@ export function EventRow({
       <div className="event-info">
         <span className="event-type">
           {meta.name}
-          {event.source ? ` · ${event.source}` : ""}
+          {source ? ` · ${source}` : ""}
           {minutes > 0 && !event.allDay ? ` · ${minutes} 分钟` : ""}
         </span>
         <h3>{event.title}</h3>

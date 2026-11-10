@@ -1,5 +1,7 @@
 import type { CalEvent, Checkin, Ddl, EventKind } from "./types";
 import type { MyEvent, PersonalItem, TimetableSession } from "./local-store";
+import { boardGroup, boardNoticeId, inferBoardSubtype, readBoardMetadata } from "./board-taxonomy.mjs";
+import officialGroups from "../data/board/official-groups.json";
 
 export type AgendaType = "course" | "notice" | "personal" | "imported";
 
@@ -30,6 +32,8 @@ export interface AgendaEvent {
   preferenceKey?: string;
   /** 来源标记，例如「签到」「作业」「考试」 */
   source?: string;
+  boardGroup?: string;
+  boardSubtype?: string;
   note?: string;
   link?: string;
   allDay?: boolean;
@@ -45,6 +49,8 @@ export interface AgendaEvent {
   done?: boolean;
   /** 相关性分数 0–100：同一天内先看得分高的 */
   score?: number;
+  /** 是否符合「仅看相关」的画像规则 */
+  related?: boolean;
   /** 打分依据，用于 tooltip 解释为什么排在前面 */
   reasons?: string[];
   /**
@@ -104,6 +110,10 @@ export function mapCalEvent(event: CalEvent, ctx: MapContext = {}): AgendaEvent 
   const end = event.kind === "deadline" ? start : resolveEnd(start, parseDate(event.endAt), event.allDay);
   const ownerMatch = Boolean(ctx.currentUserId && event.ownerId === ctx.currentUserId);
   const type: AgendaType = event.scope === "personal" ? "personal" : "notice";
+  const boardId = boardNoticeId(event.sourceUrl) || boardNoticeId(event.link);
+  const board = event.source === "board" || boardId ? readBoardMetadata(event.note) : undefined;
+  const group = board?.group || (boardId ? boardGroup((officialGroups as Record<string, string>)[boardId]) : undefined);
+  const subtype = board?.classified ? board.subtype : group && inferBoardSubtype(group, event.title);
 
   return {
     id: `event-${event.id}`,
@@ -116,7 +126,9 @@ export function mapCalEvent(event: CalEvent, ctx: MapContext = {}): AgendaEvent 
     visual: type,
     preferenceKey: event.sourceUrl ? `cloud:${event.sourceUrl}|${event.kind}|${event.startAt}` : undefined,
     source: event.scope === "personal" ? undefined : KIND_LABEL[event.kind],
-    note: event.note,
+    boardGroup: group?.id,
+    boardSubtype: subtype,
+    note: board ? board.note : event.note,
     link: event.link,
     allDay: event.allDay,
     rawKind: event.kind,
@@ -199,6 +211,13 @@ export function agendaTimeLabel(event: AgendaEvent): string {
   }
   if (event.end <= event.start) return event.start;
   return `${event.start}–${event.end}`;
+}
+
+export function boardCategoryLabel(event: AgendaEvent): string | undefined {
+  const group = boardGroup(event.boardGroup);
+  if (!group) return undefined;
+  const subtype = event.boardSubtype ? group.subtypes[event.boardSubtype] : undefined;
+  return subtype ? `${group.label} · ${subtype}` : group.label;
 }
 
 /** 课表会话 → 视图事件。课表是本机数据，归属 personal 但 visual 为 course */

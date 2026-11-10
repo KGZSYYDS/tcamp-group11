@@ -240,11 +240,11 @@ export default function ProfilePanel({ session, onSignedIn, onSignOut }: Props) 
       <form onSubmit={save} className="rounded-xl bg-white p-5 shadow-sm sm:col-span-3">
         <h2 className="mb-1 font-medium">个人画像</h2>
         <p className="mb-4 text-xs text-gray-400">
-          用于「只看与我相关」：全校事件人人可见，学院 / 年级事件按画像匹配。仅自己可见。
+          「仅看相关」优先匹配你的学院。年级仅用于判断是否到了本科大四，决定是否显示答辩。画像仅自己可见。
           <br />
           {session
             ? "登录时已从学籍系统自动取回，下面的值可以直接改。"
-            : "没登录也能填，填完「只看与我相关」就会按学院 / 年级过滤。"}
+            : "没登录也可以填写并保存画像。"}
         </p>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="text-sm">

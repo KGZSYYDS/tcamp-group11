@@ -17,6 +17,7 @@ data/*
 data/board/*
 data/web/*
 !data/board/notices-latest.json
+!data/board/official-groups.json
 !data/web/notices-web-latest.json
 
 # 环境变量与密钥

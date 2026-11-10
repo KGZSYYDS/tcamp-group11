@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AlignVerticalJustifyStart, Coffee, MapPin } from "lucide-react";
 import type { AgendaEvent } from "@/lib/agenda";
-import { agendaTimeLabel, dateKey, relevanceHint } from "@/lib/agenda";
+import { agendaTimeLabel, boardCategoryLabel, dateKey, relevanceHint } from "@/lib/agenda";
 import AnimatedContent from "./ui/AnimatedContent";
 import { VISUAL_META } from "./ClockFace";
 
@@ -92,6 +92,7 @@ export default function TimelineView({
                 ) : (
                   events.map((event) => {
                     const meta = VISUAL_META[event.visual];
+                    const boardLabel = boardCategoryLabel(event);
                     return (
                       <AnimatedContent key={event.id} distance={10} duration={0.24} threshold={0}>
                         <button
@@ -109,6 +110,7 @@ export default function TimelineView({
                           <span>
                             {agendaTimeLabel(event)}
                             <small>{meta.name}</small>
+                            {boardLabel && <small>{boardLabel}</small>}
                           </span>
                           <h3>{event.title}</h3>
                           {event.location && <p><MapPin size={13} />{event.location}</p>}

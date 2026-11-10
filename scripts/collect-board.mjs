@@ -19,13 +19,14 @@ import fs from "fs";
 import path from "path";
 import { casLogin } from "./lib/cas.mjs";
 import { loadCredentials, saveCookie, loadCookie, ensureDataDir } from "./lib/session.mjs";
+import { BOARD_GROUPS, boardGroup, mergeBoardListing } from "../lib/board-taxonomy.mjs";
 
 const ORIGIN = "https://www1.szu.edu.cn";
 const BOARD = `${ORIGIN}/board/`;
 const SERVICE = "http://www1.szu.edu.cn/manage/caslogin.asp?rurl=%2Fboard%2F";
 
 // 首页导航里的全部栏目（实测均可访问）
-const ALL_CATS = ["置顶", "教务", "学工", "科研", "行政", "讲座", "生活", "会议"];
+const ALL_CATS = [...BOARD_GROUPS.map(({ route }) => route), "置顶"];
 
 const argv = process.argv.slice(2);
 const has = (n) => argv.includes(`--${n}`);
@@ -276,9 +277,7 @@ async function main() {
     }
     const items = parseList(r.html, cat);
     for (const it of items) {
-      const prev = all.get(it.id);
-      if (!prev) all.set(it.id, it);
-      else if (!prev.category && it.category) prev.category = it.category;
+      all.set(it.id, mergeBoardListing(all.get(it.id), it, cat));
     }
     const total = (r.html.match(/共(\d+)条/) || [])[1] || "?";
     console.log(`  ${cat.padEnd(3)} 共 ${String(total).padStart(4)} 条 → 解析 ${items.length}，累计 ${all.size}`);
@@ -362,7 +361,14 @@ async function main() {
       const prev = JSON.parse(fs.readFileSync(latestFile, "utf-8"));
       if (Array.isArray(prev)) {
         const map = new Map(prev.map((x) => [String(x.id), x]));
-        for (const it of out) map.set(String(it.id), it); // 新的覆盖旧的
+        // 分类元数据可以刷新，旧通知正文不因列表页或去重被覆盖。
+        for (const it of list) {
+          const old = map.get(String(it.id));
+          if (old) map.set(String(it.id), mergeBoardListing(old, {
+            ...it, title: old.title, publishedAt: old.publishedAt || it.publishedAt, department: old.department || it.department,
+          }));
+        }
+        for (const it of out) map.set(String(it.id), mergeBoardListing(map.get(String(it.id)), it));
         // 先按发布日期，再按 id 倒序：同一天内新发的排前面
         merged = Array.from(map.values()).sort(
           (a, b) =>
@@ -376,6 +382,11 @@ async function main() {
   }
 
   fs.writeFileSync(latestFile, JSON.stringify(merged, null, 2), "utf-8");
+  const officialGroups = Object.fromEntries(merged.flatMap((item) => {
+    const group = boardGroup(item.boardGroup) || boardGroup(item.category);
+    return group ? [[item.id, group.id]] : [];
+  }));
+  fs.writeFileSync(path.join(OUT_DIR, "official-groups.json"), JSON.stringify(officialGroups) + "\n", "utf-8");
   fs.writeFileSync(seenFile, JSON.stringify(Array.from(seen)), "utf-8");
 
   const withContent = merged.filter((x) => x.content).length;

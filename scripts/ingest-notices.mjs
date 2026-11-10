@@ -26,6 +26,9 @@
  */
 import fs from "fs";
 import path from "path";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { boardGroup, writeBoardMetadata } from "../lib/board-taxonomy.mjs";
 import { extractDeadline, isActionableDeadline, isFacultyDeadline } from "../lib/deadline.mjs";
 import { pickEventTime } from "../lib/parse-time.mjs";
 import { extractLocation } from "../lib/location.mjs";
@@ -192,6 +195,16 @@ async function existingRows() {
   return map;
 }
 
+function startSubtypeWorker() {
+  if (SOURCE !== "board" || process.env.BOARD_AI_ENABLED !== "1" ||
+      !process.env.BOARD_AI_BASE_URL || !process.env.BOARD_AI_API_KEY) return;
+  const worker = spawn(process.execPath, [fileURLToPath(new URL("./classify-board.mjs", import.meta.url)), FILE], {
+    detached: true, stdio: "ignore", windowsHide: true,
+  });
+  worker.on("error", () => console.warn("后台小类判断未启动，可稍后运行 npm run classify:board"));
+  worker.unref();
+}
+
 async function main() {
   if (!fs.existsSync(FILE)) {
     console.error(
@@ -207,7 +220,10 @@ async function main() {
     process.exit(1);
   }
 
-  const rows = items.filter((it) => it.title && it.url).flatMap(toRows);
+  const rows = items.filter((it) => it.title && it.url).flatMap((item) => {
+    const group = SOURCE === "board" && (boardGroup(item.boardGroup) || boardGroup(item.category));
+    return toRows(item).map((row) => group ? { ...row, note: writeBoardMetadata(row.note, group.id) } : row);
+  });
 
   const dist = rows.reduce((acc, r) => ((acc[r.kind] = (acc[r.kind] || 0) + 1), acc), {});
   const ddlRows = rows.filter((r) => r.kind === "deadline");
@@ -291,7 +307,10 @@ async function main() {
     console.log(`  更新 ${patched} 条，失败 ${patchFailed} 条（失败多为插件建的行，受行级权限限制）`);
   }
 
-  if (todo.length === 0) return;
+  if (todo.length === 0) {
+    startSubtypeWorker();
+    return;
+  }
 
   // _trusted 是内部标记，不能发给数据库
   for (const r of todo) delete r._trusted;
@@ -316,6 +335,7 @@ async function main() {
   }
 
   console.log(`\n\n完成：新增 ${added} 条，失败 ${failed} 条`);
+  startSubtypeWorker();
 }
 
 main().catch((e) => {

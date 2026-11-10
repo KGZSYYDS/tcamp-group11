@@ -14,13 +14,14 @@ export interface RelevanceInput {
   note?: string;
   scope?: string;
   college?: string;
-  grade?: string;
   at: Date;
+  boardSubtype?: string;
   allDay?: boolean;
   location?: string;
   /** 上层已有归一化匹配器时传入结论，传了就不再字符串比较 */
   collegeMatched?: boolean;
-  gradeMatched?: boolean;
+  titleCollegeMatched?: boolean;
+  schoolWideTitle?: boolean;
 }
 
 export interface RelevanceResult {
@@ -28,8 +29,6 @@ export interface RelevanceResult {
   reasons: string[];
   related: boolean;
 }
-
-export declare const RELATED_THRESHOLD: number;
 
 export declare function scoreEvent(
   input: RelevanceInput,

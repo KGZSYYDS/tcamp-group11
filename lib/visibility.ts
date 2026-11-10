@@ -199,13 +199,17 @@ export function sameAffiliation(
  * 所以优先抽四位年份比较；抽不到再退回文本比较。
  */
 export function sameGrade(a?: string | number | null, b?: string | number | null): boolean {
-  const pick = (v?: string | number | null) => {
-    const m = /(?:19|20)\d{2}/.exec(String(v ?? ""));
-    return m ? m[0] : "";
-  };
-  const ya = pick(a);
-  const yb = pick(b);
+  const left = normalizeText(a);
+  const right = normalizeText(b);
+  const fullYear = /(?:19|20)\d{2}/;
+  const shortYear = /^(\d{2})(?:级)?$/;
+  const ya = fullYear.exec(left)?.[0];
+  const yb = fullYear.exec(right)?.[0];
   if (ya && yb) return ya === yb;
+  const sa = shortYear.exec(left)?.[1];
+  const sb = shortYear.exec(right)?.[1];
+  if (ya && sb) return ya.slice(-2) === sb;
+  if (yb && sa) return yb.slice(-2) === sa;
   return sameText(a, b);
 }
 

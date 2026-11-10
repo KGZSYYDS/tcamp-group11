@@ -25,6 +25,17 @@
       "type": ["string", "null"],
       "description": "发文单位。board 取自列表页栏目或详情页落款；web 多为 null。"
     },
+    "boardGroup": {
+      "enum": ["teaching", "research", "administration", "students", "lectures", "campus_life"],
+      "description": "公文通官方大类代码，由采集入口决定。"
+    },
+    "boardGroups": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "enum": ["teaching", "research", "administration", "students", "lectures", "campus_life"] },
+      "description": "同一通知在公文通出现过的官方栏目。"
+    },
+    "pinned": { "type": "boolean", "description": "是否出现在置顶入口。" },
     "publishedAt": {
       "$ref": "https://szu-calendar.local/schema/common.json#/$defs/dateOnly",
       "description": "发布日，只到天。不是活动时间 —— 活动时间要从 content 里抽（lib/parse-time.mjs）。"

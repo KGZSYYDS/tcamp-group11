@@ -16,13 +16,14 @@ import {
 } from "lucide-react";
 import type { AgendaEvent, AgendaVisual } from "@/lib/agenda";
 import { dateKey } from "@/lib/agenda";
-import { filterByProfile, groupByDate, useAgenda } from "@/lib/useAgenda";
+import { scoreAgenda, isRelatedEvent, groupByDate, useAgenda } from "@/lib/useAgenda";
 import type { SzUser } from "@/lib/szu-types";
 import ClockFace, { EventRow, VISUAL_META } from "./calendar/ClockFace";
 import { MonthView } from "./calendar/MonthWeekView";
 import TimelineView from "./calendar/TimelineView";
 import EventDialog from "./calendar/EventDialog";
 import type { DialogState, EventFormData } from "./calendar/EventDialog";
+import { CampusFilterButton, CampusFilterDialog } from "./calendar/CampusFilter";
 import { RippleButton } from "./calendar/ui/RippleButton";
 import Dock from "./calendar/ui/Dock";
 import "./calendar/ui/Dock.css";
@@ -42,6 +43,7 @@ const VIEWS: { id: ViewId; label: string; icon: typeof Clock3 }[] = [
 const FILTERS: AgendaVisual[] = ["course", "ddl", "notice", "imported", "personal"];
 
 const HIDDEN_KEY = "szu-cal-hidden";
+const CAMPUS_FILTER_KEY = "szu-cal-campus-filter:v1";
 
 function personalEventKey(event: AgendaEvent) {
   return event.preferenceKey || event.id;
@@ -77,6 +79,8 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
   const [selected, setSelected] = useState<Date>(startOfToday);
   const [enabled, setEnabled] = useState<AgendaVisual[]>([...FILTERS]);
   const [onlyRelated, setOnlyRelated] = useState(true);
+  const [campusFilterOpen, setCampusFilterOpen] = useState(false);
+  const [campusOff, setCampusOff] = useState<string[]>([]);
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
   const personalStorageKey = `szu-cal-personal:v1:${session?.studentId || "guest"}`;
   const [personal, setPersonal] = useState<{ storageKey: string; ids: string[] }>({ storageKey: "", ids: [] });
@@ -96,6 +100,8 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
   // 本地偏好放在挂载后读取，避免服务端渲染时访问 localStorage
   useEffect(() => {
     setHiddenIds(readJson<string[]>(HIDDEN_KEY, []));
+    const saved = readJson<unknown>(CAMPUS_FILTER_KEY, []);
+    if (Array.isArray(saved)) setCampusOff(saved.filter((key): key is string => typeof key === "string"));
   }, []);
 
   useEffect(() => {
@@ -128,10 +134,16 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
     );
   }, [events, personal, personalStorageKey]);
 
-  const visibleEvents = useMemo(() =>
-    filterByProfile(displayEvents, profile, onlyRelated, hiddenIds)
-      .filter((event) => enabled.includes(event.visual)),
-  [displayEvents, profile, onlyRelated, hiddenIds, enabled]);
+  const filteredEvents = useMemo(() =>
+    scoreAgenda(displayEvents, profile, hiddenIds)
+      .filter((event) => enabled.includes(event.visual) &&
+        (event.visual !== "notice" || !event.boardGroup ||
+          (!campusOff.includes(event.boardGroup) &&
+           (!event.boardSubtype || !campusOff.includes(`${event.boardGroup}:${event.boardSubtype}`))))),
+  [displayEvents, profile, hiddenIds, enabled, campusOff]);
+  const relatedEvents = useMemo(() => filteredEvents.filter(isRelatedEvent), [filteredEvents]);
+  const unrelatedCount = filteredEvents.length - relatedEvents.length;
+  const visibleEvents = onlyRelated ? relatedEvents : filteredEvents;
   const hasImported = events.some((event) => event.visual === "imported");
 
   const byDay = useMemo(() => groupByDate(visibleEvents), [visibleEvents]);
@@ -170,6 +182,11 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
 
   function toggleFilter(id: AgendaVisual) {
     setEnabled((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
+  function saveCampusFilters(next: string[]) {
+    setCampusOff(next);
+    try { localStorage.setItem(CAMPUS_FILTER_KEY, JSON.stringify(next)); } catch { /* Session still works. */ }
   }
 
   function togglePersonal(event: AgendaEvent) {
@@ -246,7 +263,7 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
   }
 
   // 键盘 1—3 切视图，/ 打开搜索
-  const dialogOpen = Boolean(dialog);
+  const dialogOpen = Boolean(dialog) || campusFilterOpen;
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const target = e.target as HTMLElement | null;
@@ -296,7 +313,10 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
         </div>
 
         <div className="filter-group">
-          {FILTERS.filter((id) => id !== "imported" || hasImported).map((id) => (
+          {FILTERS.filter((id) => id !== "imported" || hasImported).map((id) => id === "notice" ? (
+            <CampusFilterButton key={id} enabled={enabled.includes(id)} onToggle={() => toggleFilter(id)}
+              onOpen={() => setCampusFilterOpen(true)} />
+          ) : (
             <button
               key={id}
               type="button"
@@ -311,10 +331,12 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
             type="button"
             className="filter-toggle"
             aria-pressed={onlyRelated}
+            title={onlyRelated ? `已按画像过滤 ${unrelatedCount} 条日程，点击查看全部` : "优先按学院筛选，本科大四可见答辩"}
             onClick={() => setOnlyRelated((v) => !v)}
           >
             <SlidersHorizontal size={15} />
             {onlyRelated ? "仅看相关" : "全部"}
+            {onlyRelated && unrelatedCount > 0 ? <span className="related-filter-count">{unrelatedCount}</span> : null}
           </button>
           {hiddenIds.length > 0 ? (
             <button type="button" className="unhide-button" onClick={unhideAll}>
@@ -518,6 +540,13 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
         onSelect={(event) => open({ kind: "detail", event })}
         submitting={submitting}
         error={formError}
+      />
+      <CampusFilterDialog
+        open={campusFilterOpen}
+        off={campusOff}
+        onToggle={(key) => saveCampusFilters(campusOff.includes(key) ? campusOff.filter((item) => item !== key) : [...campusOff, key])}
+        onReset={() => saveCampusFilters([])}
+        onClose={() => setCampusFilterOpen(false)}
       />
 
       <AnimatePresence>

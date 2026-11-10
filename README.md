@@ -114,6 +114,7 @@ npm run meetings:all                     # 微信全量群 → data/meetings/*.j
 ```
 
 - 公文通全站要登录，没有公开 API；采集器登录一次拿 Cookie，之后按栏目翻页。
+- 公文通的大类使用源站六个官方栏目，「置顶」是独立属性。入库时先保存大类，日历立即可读。设置采集进程的 `BOARD_AI_ENABLED=1`、`BOARD_AI_BASE_URL`、`BOARD_AI_API_KEY` 后，入库结束会启动独立任务，只对近两个月的公文通通知按栏目批量补小类，默认模型 `deepseek-flash`。可用 `npm run classify:board -- --dry-run` 检查范围；旧通知和未能判出小类的通知照常显示。小类筛选从「校园」长按或旁边展开按钮打开。模型地址默认要求 HTTPS。默认只发送标题；当模型服务允许处理正文片段时，可设 `BOARD_AI_REVIEW_EXCERPT=1`，仅对返回空小类的条目补充至多 140 字复判。
 - 课表按「课程 + 周次 + 星期 + 节次」展开成单次上课事件；
   周次锚点取自教务系统（`jwkw` 的 `classWeek.do`），节次时间表在 `scripts/collect-timetable.mjs` 顶部。
 - **课表和群聊待办不进云库**：它们写成 `data/` 下的本机 JSON，到网页「我的」页导入，存进浏览器 localStorage。
