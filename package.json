@@ -6,6 +6,8 @@
     "dev": "node node_modules/next/dist/bin/next dev",
     "build": "node node_modules/next/dist/bin/next build",
     "start": "node node_modules/next/dist/bin/next start",
+    "build:public": "NEXT_PUBLIC_DEPLOY_MODE=public DEPLOY_MODE=public node node_modules/next/dist/bin/next build",
+    "start:public": "npm run build:public && node node_modules/next/dist/bin/next start -H 0.0.0.0 -p ${PORT:-3000}",
     "collect:profile": "node scripts/collect-profile.mjs",
     "collect:board": "node scripts/collect-board.mjs",
     "collect:web": "node scripts/collect-web.mjs",
