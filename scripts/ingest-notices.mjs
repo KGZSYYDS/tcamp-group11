@@ -107,18 +107,31 @@ function toRows(item) {
     item.content ? item.content.slice(0, 300).replace(/\s+/g, " ") : null,
   ].filter(Boolean);
 
-  const base = {
+  // 活动行：一篇通知可能有多段（上午/下午分开签到），每段一条。
+  // 第一段沿用原 url，多出来的用 #s2/#s3，既能让每段独立存在，也不会与历史数据重复。
+  const sessions = when.sessions?.length
+    ? when.sessions
+    : [{ date: when.date, start: when.time, end: null }];
+
+  const activityRows = sessions.map((s, i) => ({
     kind,
     title: (item.title || "").slice(0, 200),
-    start_at: when.time ? `${when.date}T${when.time}:00+08:00` : `${when.date}T00:00:00+08:00`,
-    all_day: !when.time,
+    start_at: s.start ? `${s.date}T${s.start}:00+08:00` : `${s.date}T00:00:00+08:00`,
+    // 结束时间：同一天有钟点就写钟点；整段日期区间写到末日 23:59；都没有就不写，
+    // 让前端按默认 1 小时兜底，而不是塞一个假的结束时间。
+    end_at: s.end
+      ? `${s.date}T${s.end}:00+08:00`
+      : when.endDate
+        ? `${when.endDate}T23:59:00+08:00`
+        : null,
+    all_day: !s.start,
     link: item.url,
     note: baseNote.join("｜") || null,
     scope: "school",
     source: SOURCE,
-    source_url: item.url,
+    source_url: i === 0 ? item.url : `${item.url}#s${i + 1}`,
     location,
-  };
+  }));
 
   // 截止行：只收学生能用上的（老师申报项目、数据库试用到期这些不进日历）
   let ddl = null;
@@ -148,7 +161,7 @@ function toRows(item) {
   if (DDL_ONLY) return rows;
 
   // 有真实活动时间，或者根本抽不出截止 → 保留活动行
-  if (when.found || !ddl) rows.push(base);
+  if (when.found || !ddl) rows.push(...activityRows);
   return rows;
 }
 

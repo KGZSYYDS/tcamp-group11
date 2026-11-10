@@ -39,7 +39,7 @@ async function fetchAll() {
   const rows = [];
   for (let offset = 0; ; offset += 1000) {
     const url =
-      `${TABLE}?select=id,title,start_at,all_day,source_url,kind` +
+      `${TABLE}?select=id,title,start_at,end_at,all_day,source_url,kind` +
       `&source_url=not.is.null&order=id&limit=1000&offset=${offset}`;
     const res = await fetch(url, { headers: HEADERS });
     if (!res.ok) throw new Error(`读取失败 ${res.status}: ${await res.text()}`);
@@ -120,16 +120,28 @@ async function main() {
         c.reasons.includes("截止语境")
     );
 
-    if (sameDate && (!picked.time || picked.time === curTime || deadlineish)) {
-      unchanged++;
-      continue;
-    }
-
     const nextStart = picked.time
       ? `${picked.date}T${picked.time}:00+08:00`
       : `${picked.date}T00:00:00+08:00`;
 
-    if (nextStart === row.start_at) {
+    // 结束时间：同一天有钟点写钟点；整段日期区间写到末日 23:59；否则不写
+    const firstEnd = picked.sessions?.[0]?.end;
+    const nextEnd = firstEnd
+      ? `${picked.date}T${firstEnd}:00+08:00`
+      : picked.endDate
+        ? `${picked.endDate}T23:59:00+08:00`
+        : null;
+
+    const startSame = nextStart === row.start_at;
+    const endSame = (nextEnd ?? null) === (row.end_at ?? null);
+
+    // 日期和时间都没变化 → 跳过（这条以前会因为「只差结束时间」被误判为无需改动）
+    if (startSame && endSame) {
+      unchanged++;
+      continue;
+    }
+    // 同一天、且原文是截止语境 → 不把截止钟点挪到活动行上
+    if (!startSame && sameDate && deadlineish) {
       unchanged++;
       continue;
     }
@@ -139,16 +151,19 @@ async function main() {
       title: row.title,
       from: row.start_at,
       to: nextStart,
+      endFrom: row.end_at ?? "",
+      endTo: nextEnd ?? "",
       before: item.publishedAt,
       reason: picked.phrase.slice(0, 60),
     });
   }
 
   const dateMoves = plan.filter((p) => p.from.slice(0, 10) !== p.to.slice(0, 10)).length;
-  const timeMoves = plan.length - dateMoves;
+  const endOnly = plan.filter((p) => p.from === p.to && p.endFrom !== p.endTo).length;
+  const timeMoves = plan.length - dateMoves - endOnly;
 
   console.log("");
-  console.log(`命中待改：${plan.length} 条（改日期 ${dateMoves}，只改时间 ${timeMoves}）`);
+  console.log(`命中待改：${plan.length} 条（改日期 ${dateMoves}，只改时间 ${timeMoves}，只补结束时间 ${endOnly}）`);
   console.log(`无需改动：${unchanged} 条；库里没有对应行：${notFound} 条；超出合理区间跳过：${outOfRange} 条`);
 
   const outDir = path.join("data", "backfill");
@@ -156,9 +171,9 @@ async function main() {
   const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
   const csvPath = path.join(outDir, `plan-${stamp}.csv`);
   const csv = [
-    "id,title,from,to,publishedAt,reason",
+    "id,title,from,to,endFrom,endTo,publishedAt,reason",
     ...plan.map((p) =>
-      [p.id, p.title, p.from, p.to, p.before, p.reason]
+      [p.id, p.title, p.from, p.to, p.endFrom, p.endTo, p.before, p.reason]
         .map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`)
         .join(",")
     ),
@@ -185,7 +200,7 @@ async function main() {
     const res = await fetch(`${TABLE}?id=eq.${p.id}`, {
       method: "PATCH",
       headers: { ...HEADERS, Prefer: "return=representation" },
-      body: JSON.stringify({ start_at: p.to, all_day: p.to.slice(11, 16) === "00:00" }),
+      body: JSON.stringify({ start_at: p.to, end_at: p.endTo || null, all_day: p.to.slice(11, 16) === "00:00" }),
     });
     if (!res.ok) {
       failed++;
