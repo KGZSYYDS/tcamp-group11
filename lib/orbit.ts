@@ -12,6 +12,7 @@ export function orbitTracks(events: AgendaEvent[]) {
   const ends: number[] = [];
   return events.filter(e => !e.allDay).map(event => {
     const start = minuteOf(event.start);
+    if (event.rawKind === "deadline") return { event, start: Math.max(0, start - 3), end: Math.min(1440, start + 3) };
     const end = minuteOf(event.end);
     return { event, start, end: end <= start ? 1440 : end };
   }).sort((a, b) => a.start - b.start || b.end - a.end || a.event.id.localeCompare(b.event.id))

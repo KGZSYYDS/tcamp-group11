@@ -13,12 +13,14 @@ import {
   loadCheckins,
   loadDdls,
   loadMyEvents,
+  loadPersonal,
   loadTimetable,
   removeCheckin,
   removeDdl,
   removeMyEvent,
 } from "@/lib/local-store";
 import type { LocalTimetable } from "@/lib/local-store";
+import type { SzUser } from "@/lib/szu-types";
 import { buildAgenda, dateKey } from "@/lib/agenda";
 import type { AgendaEvent } from "@/lib/agenda";
 
@@ -66,16 +68,19 @@ function rawId(event: AgendaEvent): string {
  * 数据来源：云库 public events（listEvents） + 本机 ddls / checkins / myEvents / timetable。
  * 云库只取公共事件，personal 行在服务端已被过滤；个人数据全部留在浏览器本地。
  */
-export function useAgenda(currentUserId: string): AgendaState {
+export function useAgenda(session: SzUser | null): AgendaState {
+  const currentUserId = session?.studentId || "";
   const [rawEvents, setRawEvents] = useState<CalEvent[]>([]);
   const [rawDdls, setRawDdls] = useState<Ddl[]>([]);
   const [rawCheckins, setRawCheckins] = useState<Checkin[]>([]);
   const [rawMy, setRawMy] = useState<ReturnType<typeof loadMyEvents>>([]);
-  const [rawTt, setRawTt] = useState<LocalTimetable["events"]>([]);
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const [timetable, setTimetable] = useState<LocalTimetable | null>(null);
+  const [groupItems, setGroupItems] = useState<NonNullable<ReturnType<typeof loadPersonal>>["events"]>([]);
+  const [cloudProfile, setCloudProfile] = useState<Profile | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
   const mounted = useRef(true);
+  const requestId = useRef(0);
 
   useEffect(() => {
     mounted.current = true;
@@ -84,51 +89,60 @@ export function useAgenda(currentUserId: string): AgendaState {
     };
   }, []);
 
-  const refresh = useCallback(async () => {
-    try {
-      // 云库只取公共事件 + profile；个人数据从本机同步读取
-      const [events, prof] = await Promise.all([
-        listEvents(),
-        getProfile().catch(() => null),
-      ]);
-      if (!mounted.current) return;
-      setRawEvents(events);
-      setProfile(prof);
-      // 本机数据（localStorage）是同步 API
-      setRawDdls(loadDdls());
-      setRawCheckins(loadCheckins());
-      setRawMy(loadMyEvents());
-      const tt = loadTimetable();
-      setRawTt(tt ? tt.events : []);
-      setError("");
-    } catch (e) {
-      if (!mounted.current) return;
-      setError(e instanceof Error ? e.message : "数据加载失败");
-    } finally {
-      if (mounted.current) setLoaded(true);
-    }
+  const refreshLocal = useCallback(() => {
+    setRawDdls(loadDdls());
+    setRawCheckins(loadCheckins());
+    setRawMy(loadMyEvents());
+    setTimetable(loadTimetable());
+    setGroupItems(loadPersonal()?.events || []);
   }, []);
+
+  const refresh = useCallback(async () => {
+    const id = ++requestId.current;
+    const isCurrent = () => mounted.current && requestId.current === id;
+    refreshLocal();
+    setError("");
+    setLoaded(false);
+    try {
+      const events = await listEvents();
+      if (!isCurrent()) return;
+      setRawEvents(events);
+    } catch {
+      if (!isCurrent()) return;
+      setError("校园通知暂时无法加载，仍可查看本机日程。");
+    } finally {
+      if (isCurrent()) setLoaded(true);
+    }
+  }, [refreshLocal]);
 
   useEffect(() => {
     void refresh();
+    void getProfile().then((p) => {
+      if (mounted.current) setCloudProfile(p);
+    }).catch(() => {});
   }, [refresh]);
 
   // 监听本机存储变化（其它 Tab 写入 / 导入），同步刷新
   useEffect(() => {
-    const onStorage = () => {
-      setRawDdls(loadDdls());
-      setRawCheckins(loadCheckins());
-      setRawMy(loadMyEvents());
-      const tt = loadTimetable();
-      setRawTt(tt ? tt.events : []);
+    window.addEventListener("storage", refreshLocal);
+    return () => window.removeEventListener("storage", refreshLocal);
+  }, [refreshLocal]);
+
+  const profile = useMemo<Profile>(() => {
+    const local = timetable?.profile;
+    const ownLocal = !session || !local?.studentId || local.studentId === session.studentId ? local : undefined;
+    return {
+      college: session?.college || ownLocal?.college || cloudProfile?.college,
+      major: session?.major || ownLocal?.major || cloudProfile?.major,
+      grade: session?.grade || ownLocal?.grade || cloudProfile?.grade,
+      level: session?.level || ownLocal?.level || cloudProfile?.level,
+      courses: timetable?.courses || cloudProfile?.courses || [],
     };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, []);
+  }, [session, timetable, cloudProfile]);
 
   const events = useMemo(
-    () => buildAgenda(rawEvents, rawDdls, rawCheckins, { currentUserId }, rawMy, rawTt),
-    [rawEvents, rawDdls, rawCheckins, rawMy, rawTt, currentUserId]
+    () => buildAgenda(rawEvents, rawDdls, rawCheckins, { currentUserId }, rawMy, timetable?.events, groupItems),
+    [rawEvents, rawDdls, rawCheckins, rawMy, timetable, groupItems, currentUserId]
   );
 
   /**
@@ -240,11 +254,12 @@ export function filterByProfile(
     if (!onlyRelated) return true;
     if (item.scope === "college") {
       if (!profile?.college) return true;
-      return item.college === profile.college;
+      return !item.college || item.college.trim() === profile.college.trim();
     }
     if (item.scope === "grade") {
       if (!profile?.grade) return true;
-      return item.grade === profile.grade;
+      const gradeKey = (value: string) => value.trim().replace(/^(\d{4})\s*级$/, "$1");
+      return !item.grade || gradeKey(item.grade) === gradeKey(profile.grade);
     }
     if (item.scope === "undergraduate" || item.scope === "postgraduate" || item.scope === "doctoral") {
       if (!profile?.level) return true;

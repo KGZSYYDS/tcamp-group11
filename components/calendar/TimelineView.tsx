@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AlignVerticalJustifyStart, Coffee, MapPin } from "lucide-react";
 import type { AgendaEvent } from "@/lib/agenda";
-import { dateKey } from "@/lib/agenda";
+import { agendaTimeLabel, dateKey } from "@/lib/agenda";
 import AnimatedContent from "./ui/AnimatedContent";
 import { VISUAL_META } from "./ClockFace";
 
@@ -106,7 +106,7 @@ export default function TimelineView({
                           }
                         >
                           <span>
-                            {event.allDay ? "全天" : `${event.start}–${event.end}`}
+                            {agendaTimeLabel(event)}
                             <small>{meta.name}</small>
                           </span>
                           <h3>{event.title}</h3>

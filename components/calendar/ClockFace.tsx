@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { Coffee, ChevronLeft, ChevronRight } from "lucide-react";
 import type { AgendaEvent, AgendaVisual } from "@/lib/agenda";
-import { dateKey, durationMinutes } from "@/lib/agenda";
+import { agendaTimeLabel, dateKey, durationMinutes } from "@/lib/agenda";
 import { orbitTracks } from "@/lib/orbit";
 import { SlidingNumber } from "./ui/SlidingNumber";
 import { useReducedMotion } from "./ui/useMotionPreference";
@@ -55,12 +55,12 @@ export default function ClockFace({ events, selected, onSelect, instant = false 
         {[0,1,2,3].map(i => <circle key={i} cx="200" cy="200" r={161-i*15} className="orbit-track" />)}
         {visible.map(({ event, start, end, lane }) => <motion.path key={event.id} d={arc(start + Math.min(1, (end-start)/8), end - Math.min(1, (end-start)/8), 161-(lane%4)*15)}
           fill="none" stroke={VISUAL_META[event.visual].color} strokeWidth={hovered?.id === event.id ? 11 : 8} strokeLinecap="butt"
-          className="orbit-event" tabIndex={0} role="button" aria-label={`${event.title}，${event.start} 至 ${event.end}`}
+          className="orbit-event" tabIndex={0} role="button" aria-label={`${event.title}，${agendaTimeLabel(event)}`}
           initial={{ pathLength: reduced ? 1 : 0, opacity: 1 }} animate={{ pathLength: 1, opacity: hovered && hovered.id !== event.id ? .35 : 1 }}
           transition={{ duration: reduced ? 0 : .55, ease: [.22,1,.36,1] }}
           onMouseEnter={() => setHovered(event)} onMouseLeave={() => setHovered(null)} onFocus={() => setHovered(event)} onBlur={() => setHovered(null)}
           onClick={() => onSelect(event)} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(event); } }}>
-          <title>{event.start}–{event.end} · {event.title}</title>
+          <title>{agendaTimeLabel(event)} · {event.title}</title>
         </motion.path>)}
         {isToday && <g className="orbit-now" pointerEvents="none"><line x1={lineStart.x} y1={lineStart.y} x2={marker.x} y2={marker.y} /><circle cx={marker.x} cy={marker.y} r="4" /></g>}
       </svg>
@@ -70,7 +70,7 @@ export default function ClockFace({ events, selected, onSelect, instant = false 
         <div className="orbit-center-mark">✦</div>
       </div>
     </div>
-    <div className="orbit-caption" aria-live="polite">{hovered ? <><strong>{hovered.start}–{hovered.end}</strong><span>{hovered.title}</span></> : <><strong>{tracks.length} 项定时安排</strong><span>色带长短代表时长 · 重叠事项分轨显示</span></>}</div>
+    <div className="orbit-caption" aria-live="polite">{hovered ? <><strong>{agendaTimeLabel(hovered)}</strong><span>{hovered.title}</span></> : <><strong>{tracks.length} 项定时安排</strong><span>色带表示时长 · 截止用短标记</span></>}</div>
     {pages > 1 && <div className="orbit-pagination"><button aria-label="上一组轨道" disabled={!activePage} onClick={() => setPage(activePage-1)}><ChevronLeft size={15}/></button><span>轨道组 {activePage+1} / {pages} · 本组 {visible.length} 项</span><button aria-label="下一组轨道" disabled={activePage === pages-1} onClick={() => setPage(activePage+1)}><ChevronRight size={15}/></button></div>}
     <div className="clock-legend">{Object.entries(VISUAL_META).map(([key, meta]) => <span key={key}><i style={{ background: meta.color }}/>{meta.name}</span>)}</div>
     {allDay.length > 0 && <details className="all-day-tray"><summary>全天事项 <b>{allDay.length}</b><span>展开查看</span></summary><div>{allDay.map(e => <button key={e.id} onClick={() => onSelect(e)}>{e.title}<span>↗</span></button>)}</div></details>}
@@ -101,7 +101,7 @@ export function EventRow({
     >
       <div className="event-time">
         <strong>{event.allDay ? "全天" : event.start}</strong>
-        <span>{event.allDay ? "　" : event.end}</span>
+        <span>{event.allDay ? "　" : event.rawKind === "deadline" ? "截止" : event.end}</span>
       </div>
       <div className="event-symbol">
         <span className="event-symbol-letter">{meta.name.slice(0, 1)}</span>

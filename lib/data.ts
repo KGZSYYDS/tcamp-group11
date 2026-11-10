@@ -27,31 +27,38 @@ function assertAffected(data: any[] | null) {
  * 个人数据本来就不该进这张表，这里是不让历史脏数据继续外泄的第二道闸。
  */
 export async function listEvents(): Promise<CalEvent[]> {
-  const rows = unwrap(
-    await cloud.database
-      .from("events")
-      .select("*")
-      .neq("scope", "personal")
-      .order("start_at", { ascending: true })
-  ) as any[];
-  return rows.map((r) => ({
-    id: String(r.id),
-    kind: r.kind,
-    title: r.title,
-    startAt: r.start_at,
-    endAt: r.end_at ?? undefined,
-    link: r.link ?? undefined,
-    allDay: r.all_day,
-    course: r.course ?? undefined,
-    location: r.location ?? undefined,
-    note: r.note ?? undefined,
-    scope: r.scope,
-    college: r.college ?? undefined,
-    grade: r.grade ?? undefined,
-    ownerId: r.owner_id ?? undefined,
-    source: r.source,
-    createdAt: r.created_at,
-  }));
+  const timeout = new AbortController();
+  const timer = setTimeout(() => timeout.abort(), 12_000);
+  try {
+    const rows = unwrap(
+      await cloud.database
+        .from("events")
+        .select("*")
+        .neq("scope", "personal")
+        .order("start_at", { ascending: true })
+        .abortSignal(timeout.signal)
+    ) as any[];
+    return rows.map((r) => ({
+      id: String(r.id),
+      kind: r.kind,
+      title: r.title,
+      startAt: r.start_at,
+      endAt: r.end_at ?? undefined,
+      link: r.link ?? undefined,
+      allDay: r.all_day,
+      course: r.course ?? undefined,
+      location: r.location ?? undefined,
+      note: r.note ?? undefined,
+      scope: r.scope,
+      college: r.college ?? undefined,
+      grade: r.grade ?? undefined,
+      ownerId: r.owner_id ?? undefined,
+      source: r.source,
+      createdAt: r.created_at,
+    }));
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function createEvent(input: CalEventInput) {

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, Clock3, MapPin, Plus, Search, Sparkles, X } from "lucide-react";
 import type { AgendaEvent } from "@/lib/agenda";
-import { dateKey } from "@/lib/agenda";
+import { agendaTimeLabel, dateKey } from "@/lib/agenda";
 import { VISUAL_META } from "./ClockFace";
 
 export type DialogKind = "detail" | "add" | "edit" | "search";
@@ -139,7 +139,7 @@ export default function EventDialog({
               <div className="detail-meta">
                 <p>
                   <Clock3 size={18} />
-                  {state.event.date}　{state.event.allDay ? "全天" : `${state.event.start}–${state.event.end}`}
+                  {state.event.date}　{agendaTimeLabel(state.event)}
                 </p>
                 <p>
                   <MapPin size={18} />

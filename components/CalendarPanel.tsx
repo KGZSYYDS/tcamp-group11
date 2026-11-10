@@ -17,6 +17,7 @@ import {
 import type { AgendaEvent, AgendaVisual } from "@/lib/agenda";
 import { categoriesOf, dateKey } from "@/lib/agenda";
 import { filterByProfile, groupByDate, useAgenda } from "@/lib/useAgenda";
+import type { SzUser } from "@/lib/szu-types";
 import ClockFace, { EventRow, VISUAL_META } from "./calendar/ClockFace";
 import { MonthView } from "./calendar/MonthWeekView";
 import TimelineView from "./calendar/TimelineView";
@@ -63,9 +64,9 @@ function readJson<T>(key: string, fallback: T): T {
   }
 }
 
-export default function CalendarPanel({ currentUserId }: { currentUserId: string }) {
-  const { events, profile, loaded, error, createAgendaEvent, removeAgendaEvent } =
-    useAgenda(currentUserId);
+export default function CalendarPanel({ session }: { session: SzUser | null }) {
+  const { events, profile, loaded, error, refresh, createAgendaEvent, removeAgendaEvent } =
+    useAgenda(session);
 
   const [view, setView] = useState<ViewId>("month");
   const [quickSwitch, setQuickSwitch] = useState(false);
@@ -211,7 +212,7 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
     );
   }
 
-  // 键盘 1—4 切视图，/ 打开搜索
+  // 键盘 1—3 切视图，/ 打开搜索
   const dialogOpen = Boolean(dialog);
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -319,7 +320,12 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
         </div>
       ) : null}
 
-      {error ? <p className="cal-error">{error}</p> : null}
+      {error ? (
+        <div className="cal-error" role="status">
+          <span>{error}</span>
+          <button type="button" onClick={() => void refresh()}>重试</button>
+        </div>
+      ) : null}
       {!loaded ? <p className="cal-loading">正在加载云端日程…</p> : null}
 
       {/* 懒加载：每个视图首次进入才挂载，已挂载的用 display 切换保留状态，切换瞬间完成不重新请求数据/不重放动画 */}

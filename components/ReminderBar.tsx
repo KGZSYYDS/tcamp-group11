@@ -65,7 +65,7 @@ export default function ReminderBar({
 
   const refresh = useCallback(async () => {
     try {
-      const events = await listEvents();
+      const events = await listEvents().catch(() => []);
       // buildDeadlines 内部已经合并了本机群聊截止
       const deadlines = buildDeadlines(loadDdls(), events, loadDoneKeys());
       const result = computeReminders(deadlines, { dismissed: readDismissed() });
@@ -110,24 +110,19 @@ export default function ReminderBar({
   };
 
   return (
-    <div className={`mb-5 rounded-xl border px-4 py-3 ${style}`}>
-      <div className="flex items-start gap-3">
+    <div className={`app-reminder rounded-xl border px-3 py-2 ${style}`}>
+      <div className="flex items-center gap-2">
         <span aria-hidden className="mt-0.5 shrink-0 text-base leading-none">
           {next.level === "urgent" ? "●" : "◔"}
         </span>
 
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium leading-snug">
+          <p className="truncate text-xs font-medium leading-snug">
             还有 {items.length} 件要交 · 最近：{next.title}
             <span className="font-normal opacity-80"> {formatDue(next.dueAt)} 截止</span>
           </p>
-          {items.length > 1 && (
-            <p className="mt-1 truncate text-xs opacity-70">
-              接着：{items.slice(1, 3).map((item) => item.title).join("、")}
-            </p>
-          )}
           {overdue > 0 && (
-            <p className="mt-1 text-xs opacity-60">另有 {overdue} 条已过期</p>
+            <p className="text-[10px] opacity-70">另有 {overdue} 条已过期</p>
           )}
         </div>
 

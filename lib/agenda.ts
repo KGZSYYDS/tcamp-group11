@@ -1,5 +1,5 @@
 import type { CalEvent, Checkin, Ddl, EventKind } from "./types";
-import type { MyEvent, TimetableSession } from "./local-store";
+import type { MyEvent, PersonalItem, TimetableSession } from "./local-store";
 
 /** 原型视图里的四类日程 */
 export type AgendaType = "course" | "notice" | "personal";
@@ -92,7 +92,7 @@ export interface MapContext {
 export function mapCalEvent(event: CalEvent, ctx: MapContext = {}): AgendaEvent | null {
   const start = parseDate(event.startAt);
   if (!start) return null;
-  const end = resolveEnd(start, parseDate(event.endAt), event.allDay);
+  const end = event.kind === "deadline" ? start : resolveEnd(start, parseDate(event.endAt), event.allDay);
   const ownerMatch = Boolean(ctx.currentUserId && event.ownerId === ctx.currentUserId);
   const type: AgendaType = event.scope === "personal" ? "personal" : toAgendaType(event.kind);
 
@@ -104,7 +104,7 @@ export function mapCalEvent(event: CalEvent, ctx: MapContext = {}): AgendaEvent 
     end: event.allDay ? "23:59" : timeKey(end),
     location: event.location || event.course || "",
     type,
-    visual: type,
+    visual: event.kind === "deadline" ? "ddl" : type,
     source: event.scope === "personal" ? undefined : KIND_LABEL[event.kind],
     note: event.note,
     link: event.link,
@@ -202,7 +202,8 @@ export function categoriesOf(event: AgendaEvent): AgendaVisual[] {
   // 带课程名的事件（课程考试、课程活动、课程签到等）也归入「课程」
   if (event.course) set.add("course");
   // DDL 是课程作业，签到是课程签到，二者本质上都属于「课程」
-  if (event.visual === "ddl" || event.rawKind === "checkin") set.add("course");
+  if (event.rawKind === "ddl" || event.rawKind === "checkin") set.add("course");
+  if (event.rawKind === "deadline") set.add(event.scope === "personal" ? "personal" : "notice");
   return Array.from(set);
 }
 
@@ -211,6 +212,12 @@ export function durationMinutes(event: AgendaEvent): number {
   const [sh, sm] = event.start.split(":").map(Number);
   const [eh, em] = event.end.split(":").map(Number);
   return Math.max(0, eh * 60 + em - (sh * 60 + sm));
+}
+
+export function agendaTimeLabel(event: AgendaEvent): string {
+  if (event.allDay) return "全天";
+  if (event.rawKind === "deadline") return `${event.start} 截止`;
+  return `${event.start}–${event.end}`;
 }
 
 /** 课表会话 → 视图事件。课表是本机数据，归属 personal 但 visual 为 course */
@@ -241,7 +248,8 @@ export function mapTimetable(session: TimetableSession): AgendaEvent | null {
 export function mapMyEvent(ev: MyEvent): AgendaEvent | null {
   const start = parseDate(ev.startAt);
   if (!start) return null;
-  const end = resolveEnd(start, parseDate(ev.endAt), ev.allDay);
+  const isDeadline = ev.kind === "deadline";
+  const end = isDeadline ? start : resolveEnd(start, parseDate(ev.endAt), ev.allDay);
   return {
     id: `my-${ev.id}`,
     title: ev.title,
@@ -250,15 +258,39 @@ export function mapMyEvent(ev: MyEvent): AgendaEvent | null {
     end: ev.allDay ? "23:59" : timeKey(end),
     location: ev.location || ev.course || "",
     type: "personal",
-    visual: "personal",
+    visual: isDeadline ? "ddl" : "personal",
     source: "个人",
     note: ev.note,
     link: ev.link,
     allDay: ev.allDay,
-    rawKind: "other",
+    rawKind: isDeadline ? "deadline" : "other",
     deletable: true,
     scope: "personal",
     course: ev.course,
+  };
+}
+
+/** 「我的」中导入的群聊事项已有独立存储，由该页管理。 */
+function mapGroupItem(item: PersonalItem): AgendaEvent | null {
+  const start = parseDate(item.startAt);
+  if (!start) return null;
+  const allDay = Boolean(item.allDay);
+  return {
+    id: `group-${JSON.stringify([item.kind, item.startAt, item.title])}`,
+    title: item.title,
+    date: dateKey(start),
+    start: allDay ? "00:00" : timeKey(start),
+    end: allDay ? "23:59" : timeKey(item.kind === "deadline" ? start : resolveEnd(start, parseDate(item.endAt), false)),
+    location: item.location || item.course || "",
+    type: "personal",
+    visual: item.kind === "deadline" ? "ddl" : "personal",
+    source: "群聊",
+    note: item.note,
+    allDay,
+    rawKind: item.kind,
+    deletable: false,
+    scope: "personal",
+    course: item.course,
   };
 }
 
@@ -269,7 +301,8 @@ export function buildAgenda(
   checkins: Checkin[],
   ctx: MapContext = {},
   myEvents: MyEvent[] = [],
-  timetable: TimetableSession[] = []
+  timetable: TimetableSession[] = [],
+  groupItems: PersonalItem[] = []
 ): AgendaEvent[] {
   const merged = [
     ...events.map((item) => mapCalEvent(item, ctx)),
@@ -277,6 +310,7 @@ export function buildAgenda(
     ...checkins.map(mapCheckin),
     ...myEvents.map(mapMyEvent),
     ...timetable.map(mapTimetable),
+    ...groupItems.map(mapGroupItem),
   ].filter((item): item is AgendaEvent => item !== null);
 
   return merged.sort(

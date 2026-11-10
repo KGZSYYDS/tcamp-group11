@@ -109,7 +109,7 @@ export default function Dashboard() {
           >
             {label}
             {key === "ddl" && reminderCount > 0 && (
-              <span className="ml-1.5 inline-flex min-w-[18px] justify-center rounded-full bg-rose-500 px-1 py-0.5 text-[10px] font-semibold leading-none text-white">
+              <span className="nav-badge ml-1.5 inline-flex min-w-[18px] justify-center rounded-full bg-rose-500 px-1 py-0.5 text-[10px] font-semibold leading-none text-white">
                 {reminderCount > 99 ? "99+" : reminderCount}
               </span>
             )}
@@ -117,34 +117,32 @@ export default function Dashboard() {
         ))}
       </nav>
 
-      {!user && !bannerOff && tab === "calendar" && (
-        <div className="app-banner">
-          <p>不用登录也能用 · 登录后自动同步课表</p>
-          <div>
-            <button onClick={() => setTab("me")}>去登录</button>
-            <button onClick={() => setBannerOff(true)} aria-label="关闭提示">×</button>
+      <div className="app-main">
+        {!user && !bannerOff && tab === "calendar" && (
+          <div className="app-banner">
+            <p>不用登录也能用 · 登录后自动同步课表</p>
+            <div>
+              <button onClick={() => setTab("me")}>去登录</button>
+              <button onClick={() => setBannerOff(true)} aria-label="关闭提示">×</button>
+            </div>
           </div>
-        </div>
-      )}
-
-      {tab === "calendar" && (
-        <div className="app-reminder-slot">
-          <ReminderBar onOpen={() => setTab("ddl")} onCountChange={setReminderCount} />
-        </div>
-      )}
-
-      <div className="app-content" key={tab}>
-        {tab === "calendar" && <CalendarPanel currentUserId={user?.studentId || ""} />}
-        {tab === "ddl" && <DdlPanel />}
-        {tab === "checkin" && <CheckinPanel />}
-        {tab === "paste" && <PasteImporter />}
-        {tab === "me" && (
-          <ProfilePanel session={user} onSignedIn={loadSession} onSignOut={loadSession} />
         )}
+        {tab === "calendar" && (
+          <ReminderBar onOpen={() => setTab("ddl")} onCountChange={setReminderCount} />
+        )}
+        <div className="app-content" key={tab}>
+          {tab === "calendar" && <CalendarPanel session={user} />}
+          {tab === "ddl" && <DdlPanel />}
+          {tab === "checkin" && <CheckinPanel />}
+          {tab === "paste" && <PasteImporter />}
+          {tab === "me" && (
+            <ProfilePanel session={user} onSignedIn={loadSession} onSignOut={loadSession} />
+          )}
+        </div>
       </div>
 
       <footer className="app-footer">
-        个人数据仅自己可见 · 公共事件按学院 / 年级匹配 · 数据云端同步
+        校园通知从云端读取 · 个人日程、作业、签到和课表保存在此浏览器
       </footer>
       <SyncReceiver />
     </main>
