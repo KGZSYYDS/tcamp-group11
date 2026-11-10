@@ -4,7 +4,7 @@ import { useState } from "react";
 import { minuteOf } from "@/lib/orbit";
 import { Coffee } from "lucide-react";
 import type { AgendaEvent } from "@/lib/agenda";
-import { dateKey } from "@/lib/agenda";
+import { dateKey, relevanceHint } from "@/lib/agenda";
 import { EventRow, VISUAL_META } from "./ClockFace";
 
 function addDays(date: Date, n: number) {
@@ -166,7 +166,7 @@ export function WeekView({ selected, eventsFor, onEvent }: ViewProps) {
         const dayEvents=eventsFor(addDays(monday,i)).filter(e=>!e.allDay);
         const ends:number[]=[];
         const blocks=dayEvents.map(event=>{const start=position(event.start); const end=event.end<=event.start?12:Math.min(12,Math.max(start+.8,position(event.end)));return {event,start,end};}).sort((a,b)=>a.start-b.start||b.end-a.end).map(item=>{let lane=ends.findIndex(e=>e<=item.start); if(lane<0)lane=ends.length; ends[lane]=item.end;return {...item,lane};});
-        return <div className="week-column" key={i}>{blocks.map(({event,start,end,lane})=><button key={event.id} type="button" className="course-block" title={`${event.title} · ${event.start}–${event.end}${event.location?' · '+event.location:''}`} onClick={()=>onEvent(event)} style={{top:`${start/12*100}%`,height:`${(end-start)/12*100}%`,left:`calc(${lane/ends.length*100}% + 2px)`,width:`calc(${100/ends.length}% - 4px)`,background:VISUAL_META[event.visual].bg,color:VISUAL_META[event.visual].dark,borderColor:VISUAL_META[event.visual].color}}><strong>{event.title}</strong><small>{event.location}</small><span>{event.start}</span></button>)}</div>;
+        return <div className="week-column" key={i}>{blocks.map(({event,start,end,lane})=><button key={event.id} type="button" className="course-block" title={`${event.title} · ${event.start}–${event.end}${event.location?' · '+event.location:''}${relevanceHint(event)?' · '+relevanceHint(event):''}`} onClick={()=>onEvent(event)} style={{top:`${start/12*100}%`,height:`${(end-start)/12*100}%`,left:`calc(${lane/ends.length*100}% + 2px)`,width:`calc(${100/ends.length}% - 4px)`,background:VISUAL_META[event.visual].bg,color:VISUAL_META[event.visual].dark,borderColor:VISUAL_META[event.visual].color}}><strong>{event.title}</strong><small>{event.location}</small><span>{event.start}</span></button>)}</div>;
       })}
     </div></div>
     {expanded && <div className="week-day-detail"><div className="section-title"><h3>{expanded.getMonth()+1}月{expanded.getDate()}日 · 全部安排</h3><button className="subtle" onClick={()=>setExpanded(null)}>收起 ×</button></div><div className="week-day-events">{eventsFor(expanded).length?eventsFor(expanded).map(event=><EventRow key={event.id} event={event} onClick={()=>onEvent(event)}/>):<p className="empty">这天还没有安排</p>}</div></div>}

@@ -321,3 +321,12 @@ export function buildAgenda(
     (a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start)
   );
 }
+
+/**
+ * 悬停提示：这条为什么排在前面。
+ * 分数只在有依据时才有意义，没算过就不显示，避免出现「相关度 undefined」。
+ */
+export function relevanceHint(event: AgendaEvent): string | undefined {
+  if (!event.reasons?.length) return undefined;
+  return `相关度 ${event.score ?? "-"}：${event.reasons.join("、")}`;
+}
