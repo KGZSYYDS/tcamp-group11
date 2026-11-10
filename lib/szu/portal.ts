@@ -58,15 +58,25 @@ function assertJson(text: string, what: string) {
   }
 }
 
+/**
+ * GET 并把重定向链跟完，**每一跳的 Set-Cookie 都收进 jar**。
+ *
+ * 不能用 fetch 的 redirect:"follow"：那样只能看到最后一跳的响应头，
+ * 而办事大厅/教务经常是「302 时种会话 cookie、落到 200 的页面本身不再种」，
+ * 中间这一跳丢掉，后面所有请求都是未登录状态。
+ */
 async function getFollowing(jar: CookieJar, url: string, headers: Record<string, string> = {}) {
-  const res = await fetch(url, {
-    headers: { Cookie: jar.headerFor(url), "User-Agent": UA, ...headers },
-    redirect: "follow",
-    cache: "no-store",
-  });
-  const host = new URL(res.url || url).hostname.toLowerCase();
-  jar.addFromResponse(res, host);
-  return { status: res.status, text: await res.text(), url: res.url };
+  let current = url;
+  for (let i = 0; i < 10; i++) {
+    const res = await requestWith(jar, current, { headers });
+    const next = res.headers.get("location");
+    if (res.status >= 300 && res.status < 400 && next) {
+      current = new URL(next, current).toString();
+      continue;
+    }
+    return { status: res.status, text: await res.text(), url: current };
+  }
+  throw new Error(`重定向超过 10 跳，已中止：${url}`);
 }
 
 // ---------- 办事大厅 / 课表 ----------

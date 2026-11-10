@@ -9,11 +9,12 @@
  * 不写日志、不进数据库、不落任何文件。
  */
 import { NextResponse } from "next/server";
-import { CasError, casLogin, casSsoInto } from "@/lib/szu/cas";
+import { CasError, CookieJar, casLogin, casSsoInto } from "@/lib/szu/cas";
 import {
   EHALL_SERVICE,
   JWKW_SERVICE,
   collectTimetable,
+  ehallAlive,
   fetchProfile,
 } from "@/lib/szu/portal";
 import { SESSION_COOKIE, SESSION_DAYS, createSession, saveEhallJar, saveJwkwJar } from "@/lib/szu/session";
@@ -22,8 +23,16 @@ import { ownerKey } from "@/lib/sessions/owner";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function fail(status: number, message: string, code?: string) {
-  return NextResponse.json({ ok: false, message, code }, { status });
+function fail(status: number, message: string, code?: string, debug?: Record<string, unknown>) {
+  return NextResponse.json({ ok: false, message, code, ...(debug ? { debug } : {}) }, { status });
+}
+
+/** 只列「域名 + cookie 名」，不含值：够判断会话缺了哪一块，又不会把凭据带出去 */
+function jarSummary(jar: CookieJar) {
+  return jar
+    .dump()
+    .map(([domain, pairs]) => `${domain}:${pairs.map(([k]) => k).join(",")}`)
+    .join(" | ");
 }
 
 export async function POST(req: Request) {
@@ -52,10 +61,47 @@ export async function POST(req: Request) {
   }
   if (!password) return fail(400, "请填统一认证密码");
 
+  // 只在出错时回传的诊断信息：不含密码、不含 cookie 值
+  const debug: Record<string, unknown> = {};
+
   try {
     // ① 一次密码登录，落到办事大厅
-    const { jar } = await casLogin(studentId, password, EHALL_SERVICE);
+    const { jar, finalUrl } = await casLogin(studentId, password, EHALL_SERVICE);
     password = "";
+
+    /**
+     * ①.5 「CAS 给了 ticket」不等于「办事大厅认了这个会话」。
+     *
+     * 实测过的失败形态：票据校验那一步 ehall 一次种 4 条 cookie
+     * （route / MOD_AUTH_CAS / asessionid / JSESSIONID），如果运行环境把
+     * 多条 Set-Cookie 合并成一条、而解析只取第一条，MOD_AUTH_CAS 就丢了，
+     * 随后 userInfo.json 直接返回 hasLogin:false —— 看起来像「登录成功但没登录」。
+     *
+     * 这里先自检；没认就用 TGC 再换一次 ticket（不传密码，不触发重复登录风控）。
+     */
+    let ehallOk = await ehallAlive(jar);
+    if (!ehallOk) {
+      debug.ehallRetry = true;
+      try {
+        await casSsoInto(jar, EHALL_SERVICE);
+        ehallOk = await ehallAlive(jar);
+      } catch {
+        /* 重试也失败就往下统一报错 */
+      }
+    }
+    if (!ehallOk) {
+      const probe = new Headers() as unknown as { getSetCookie?: () => string[] };
+      debug.node = process.version;
+      debug.getSetCookie = typeof probe.getSetCookie === "function";
+      debug.landed = String(finalUrl || "").replace(/^https?:\/\//, "").split("?")[0];
+      debug.jar = jarSummary(jar);
+      return fail(
+        502,
+        "统一认证通过了，但办事大厅没认这次会话。已自动重试一次仍失败，请把这行下面的 debug 信息发给我",
+        "EHALL_SESSION",
+        debug
+      );
+    }
 
     // ② 教务系统走单点登录换 ticket —— 不能再登一次，重复登录会被判风控
     let jwkwOk = false;
@@ -109,6 +155,6 @@ export async function POST(req: Request) {
       return fail(status, e.message, e.code);
     }
     const message = e instanceof Error ? e.message : "登录失败";
-    return fail(502, message, "PORTAL");
+    return fail(502, message, "PORTAL", Object.keys(debug).length ? debug : undefined);
   }
 }

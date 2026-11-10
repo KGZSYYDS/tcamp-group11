@@ -22,7 +22,7 @@
     "sync:notices": "node scripts/collect-board.mjs && node scripts/collect-web.mjs && node scripts/ingest-notices.mjs",
     "backfill:dates": "node scripts/backfill-dates.mjs",
     "selfcheck": "node scripts/selfcheck.mjs",
-    "test": "node scripts/test-deadline.mjs && node scripts/test-parse-time.mjs && node scripts/test-reminders.mjs && node scripts/test-relevance.mjs && node scripts/test-categorize.mjs && node scripts/test-location.mjs && node scripts/test-time-span.mjs && node scripts/test-board-taxonomy.mjs",
+    "test": "node scripts/test-deadline.mjs && node scripts/test-parse-time.mjs && node scripts/test-reminders.mjs && node scripts/test-relevance.mjs && node scripts/test-categorize.mjs && node scripts/test-location.mjs && node scripts/test-time-span.mjs && node scripts/test-board-taxonomy.mjs && node scripts/test-set-cookie.mjs",
     "test:deadline": "node scripts/test-deadline.mjs",
     "test:parse-time": "node scripts/test-parse-time.mjs",
     "test:reminders": "node scripts/test-reminders.mjs",

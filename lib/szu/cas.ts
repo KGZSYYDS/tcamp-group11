@@ -13,6 +13,7 @@
  * 所以第二个域走 CAS 单点登录：带着第一次拿到的 TGC 去要 ticket，不再传密码。
  */
 import crypto from "node:crypto";
+import { splitSetCookie } from "../set-cookie.mjs";
 
 const CAS = "https://authserver.szu.edu.cn";
 const AES_CHARS = "ABCDEFGHJKMNPQRSTWXYZabcdefhijkmnprstwxyz2345678";
@@ -42,15 +43,35 @@ export function encryptPassword(password: string, salt: string) {
 
 // ---------- 极简 cookie jar（跨 authserver / ehall / jwkw 多个域） ----------
 
+/**
+ * 取一条响应里的全部 Set-Cookie。
+ *
+ * 先试 undici 的 getSetCookie()；拿不到就按合并字符串拆。
+ *
+ * 兜底这条路不能省：`getSetCookie` 是 Node 18.14 之后才有的，
+ * 更早的运行时（以及某些 fetch 包装层）只能拿到一条逗号拼接的 set-cookie 头。
+ * 这时只解析第一条，办事大厅的 MOD_AUTH_CAS 就丢了，
+ * 表现是「统一认证通过了，但 userInfo.json 里 hasLogin:false」。
+ * 本机 Node 22 + Next 14 实测两条路都能拿到 3 条，所以别赌运行环境。
+ */
+function readSetCookies(headers: Headers): string[] {
+  const h = headers as unknown as { getSetCookie?: () => string[] };
+  if (typeof h.getSetCookie === "function") {
+    try {
+      const list = h.getSetCookie();
+      if (list && list.length) return list;
+    } catch {
+      /* 落到下面的兜底 */
+    }
+  }
+  return splitSetCookie(headers.get("set-cookie"));
+}
+
 export class CookieJar {
   private store = new Map<string, Map<string, string>>();
 
   addFromResponse(res: Response, requestHost: string) {
-    const h = res.headers as unknown as { getSetCookie?: () => string[] };
-    const list =
-      typeof h.getSetCookie === "function"
-        ? h.getSetCookie()
-        : [res.headers.get("set-cookie")].filter((v): v is string => Boolean(v));
+    const list = readSetCookies(res.headers);
 
     for (const raw of list) {
       const parts = raw.split(";").map((p) => p.trim());
@@ -75,17 +96,27 @@ export class CookieJar {
 
   headerFor(url: string) {
     const host = new URL(url).hostname.toLowerCase();
+
+    // 域名越长越具体，必须先发。否则 ehall 和 jwkw 各自种的 JSESSIONID
+    // 会同时出现在 Cookie 头里，服务端取第一个，就可能拿到另一个系统的会话。
+    const domains = Array.from(this.store.keys())
+      .filter((d) => host === d || host.endsWith("." + d))
+      .sort((a, b) => b.length - a.length);
+
+    const seen = new Set<string>();
     const out: string[] = [];
-    for (const [domain, jar] of this.store) {
-      if (host === domain || host.endsWith("." + domain)) {
-        for (const [k, v] of jar) out.push(`${k}=${v}`);
+    for (const d of domains) {
+      for (const [k, v] of this.store.get(d)!) {
+        if (seen.has(k)) continue;
+        seen.add(k);
+        out.push(`${k}=${v}`);
       }
     }
     return out.join("; ");
   }
 
-  dump() {
-    return Array.from(this.store, ([d, jar]) => [d, Array.from(jar)]);
+  dump(): [string, [string, string][]][] {
+    return Array.from(this.store, ([d, jar]) => [d, Array.from(jar)] as [string, [string, string][]]);
   }
 
   restore(dump: unknown) {
@@ -124,7 +155,7 @@ function pick(html: string, re: RegExp) {
 }
 
 /** 把 302 链跟完，让目标站点种下自己的会话 cookie */
-async function follow(jar: CookieJar, start: string, max = 8) {
+async function follow(jar: CookieJar, start: string, max = 12) {
   let current = start;
   let finalUrl = start;
   for (let i = 0; i < max; i++) {
