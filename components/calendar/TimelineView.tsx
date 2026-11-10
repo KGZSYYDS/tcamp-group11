@@ -109,6 +109,7 @@ export default function TimelineView({
                           <span>
                             {agendaTimeLabel(event)}
                             <small>{meta.name}</small>
+                            {event.boardTopic && <small>{event.boardTopic}</small>}
                           </span>
                           <h3>{event.title}</h3>
                           {event.location && <p><MapPin size={13} />{event.location}</p>}

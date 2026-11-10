@@ -1,5 +1,6 @@
 import type { CalEvent, Checkin, Ddl, EventKind } from "./types";
 import type { MyEvent, PersonalItem, TimetableSession } from "./local-store";
+import { readBoardNote } from "./board-topic.mjs";
 
 /** 原型视图里的四类日程 */
 export type AgendaType = "course" | "notice" | "personal";
@@ -27,6 +28,7 @@ export interface AgendaEvent {
   visual: AgendaVisual;
   /** 来源标记，例如「签到」「作业」「考试」 */
   source?: string;
+  boardTopic?: string;
   note?: string;
   link?: string;
   allDay?: boolean;
@@ -107,6 +109,7 @@ export function mapCalEvent(event: CalEvent, ctx: MapContext = {}): AgendaEvent 
   const end = event.kind === "deadline" ? start : resolveEnd(start, parseDate(event.endAt), event.allDay);
   const ownerMatch = Boolean(ctx.currentUserId && event.ownerId === ctx.currentUserId);
   const type: AgendaType = event.scope === "personal" ? "personal" : toAgendaType(event.kind);
+  const annotation = event.source === "board" ? readBoardNote(event.note) : { note: event.note };
 
   return {
     id: `event-${event.id}`,
@@ -118,7 +121,8 @@ export function mapCalEvent(event: CalEvent, ctx: MapContext = {}): AgendaEvent 
     type,
     visual: event.kind === "deadline" ? "ddl" : type,
     source: event.scope === "personal" ? undefined : KIND_LABEL[event.kind],
-    note: event.note,
+    note: annotation.note,
+    boardTopic: "topic" in annotation ? annotation.topic : undefined,
     link: event.link,
     allDay: event.allDay,
     rawKind: event.kind,
