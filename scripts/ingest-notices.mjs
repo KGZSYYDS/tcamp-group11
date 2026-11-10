@@ -149,7 +149,7 @@ function toRows(item) {
         start_at: `${d.date}T${time}:00+08:00`,
         all_day: false,
         link: item.url,
-        note: [`截止：${d.date} ${d.time || "23:59（正文未写钟点）"}`, `原话：${d.phrase}`]
+        note: [`截止：${d.date}${d.time ? ` ${d.time}` : ""}`, `原话：${d.phrase}`]
           .concat(item.department ? [`发布：${item.department}`] : [])
           .join("｜"),
         scope: "school",
@@ -163,8 +163,10 @@ function toRows(item) {
 
   if (DDL_ONLY) return rows;
 
-  // 有真实活动时间，或者根本抽不出截止 → 保留活动行
-  if (when.found || !ddl) rows.push(...activityRows);
+  // 只有真的抽到活动时间才进日历。
+  // 抽不到就别硬塞发布日：那样的「事件」在日历上只是噪音，
+  // 而且会让人误以为那天真有活动（实测 233 条属于这种）。
+  if (when.found) rows.push(...activityRows);
   return rows;
 }
 

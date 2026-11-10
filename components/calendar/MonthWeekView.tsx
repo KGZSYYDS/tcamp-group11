@@ -165,7 +165,7 @@ export function WeekView({ selected, eventsFor, onEvent }: ViewProps) {
       {Array.from({length:7},(_,i)=>{
         const dayEvents=eventsFor(addDays(monday,i)).filter(e=>!e.allDay);
         const ends:number[]=[];
-        const blocks=dayEvents.map(event=>{const start=position(event.start); const end=event.end<=event.start?12:Math.min(12,Math.max(start+.8,position(event.end)));return {event,start,end};}).sort((a,b)=>a.start-b.start||b.end-a.end).map(item=>{let lane=ends.findIndex(e=>e<=item.start); if(lane<0)lane=ends.length; ends[lane]=item.end;return {...item,lane};});
+        const blocks=dayEvents.map(event=>{const start=position(event.start); const end=event.end<=event.start?Math.min(11.7,start+.5):Math.min(12,Math.max(start+.8,position(event.end)));return {event,start,end};}).sort((a,b)=>a.start-b.start||b.end-a.end).map(item=>{let lane=ends.findIndex(e=>e<=item.start); if(lane<0)lane=ends.length; ends[lane]=item.end;return {...item,lane};});
         return <div className="week-column" key={i}>{blocks.map(({event,start,end,lane})=><button key={event.id} type="button" className="course-block" title={`${event.title} · ${event.start}–${event.end}${event.location?' · '+event.location:''}${relevanceHint(event)?' · '+relevanceHint(event):''}`} onClick={()=>onEvent(event)} style={{top:`${start/12*100}%`,height:`${(end-start)/12*100}%`,left:`calc(${lane/ends.length*100}% + 2px)`,width:`calc(${100/ends.length}% - 4px)`,background:VISUAL_META[event.visual].bg,color:VISUAL_META[event.visual].dark,borderColor:VISUAL_META[event.visual].color}}><strong>{event.title}</strong>{event.location && <small>{event.location}</small>}<span>{event.start}</span></button>)}</div>;
       })}
     </div></div>
