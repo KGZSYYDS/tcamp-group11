@@ -91,7 +91,7 @@ export default function Dock({
   const rawPeak = Math.max(rawBase, magnification);
   const thickness = Math.max(rawBase, panelHeight);
   const length =
-    items.length * rawBase + gap * Math.max(0, items.length - 1) + thickness - rawBase;
+    items.length * rawPeak + gap * Math.max(0, items.length - 1) + thickness - rawBase;
 
   const base = rawBase * fit;
   const peak = rawPeak * fit;
@@ -101,7 +101,6 @@ export default function Dock({
     peak,
     gap: gap * fit,
     distance: Math.max(1, distance) * fit,
-    length: length + rawPeak - rawBase,
     bounce,
   };
   const settingsRef = useRef(settings);
@@ -110,15 +109,16 @@ export default function Dock({
   useIsomorphicLayoutEffect(() => {
     const root = rootRef.current;
     if (!root) return;
-    const host = root.offsetParent ?? document.documentElement;
+    // The collapsible wrapper fits its contents, so measuring it can shrink the Dock again.
+    const viewport = document.documentElement;
     const measure = () => {
-      const room = host.clientWidth - EDGE * 2;
+      const room = viewport.clientWidth - EDGE * 2;
       const next = length > 0 ? Math.min(1, Math.max(0.4, room / length)) : 1;
       setFit(Math.round(next * 1000) / 1000);
     };
     measure();
     const observer = new ResizeObserver(measure);
-    observer.observe(host);
+    observer.observe(viewport);
     return () => observer.disconnect();
   }, [length]);
 

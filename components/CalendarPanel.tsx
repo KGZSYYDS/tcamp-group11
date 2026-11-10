@@ -437,10 +437,10 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
           key={String(reduced)}
           className="view-dock"
           theme="light"
-          baseItemSize={44}
-          magnification={56}
-          distance={120}
-          panelHeight={58}
+          baseItemSize={66}
+          magnification={74}
+          distance={100}
+          panelHeight={90}
           gap={12}
           tiles={false}
           showLabels={false}
@@ -452,7 +452,7 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
               className: view === item.id ? "is-active" : "",
               icon: (
                 <>
-                  <Icon size={23} />
+                  <Icon size={26} aria-hidden="true" />
                   <span className="dock-name">{item.label}</span>
                 </>
               ),
