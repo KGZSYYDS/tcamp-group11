@@ -15,11 +15,44 @@
 import crypto from "node:crypto";
 import { splitSetCookie } from "../set-cookie.mjs";
 
-const CAS = "https://authserver.szu.edu.cn";
+export const CAS_HOST = "authserver.szu.edu.cn";
+const CAS = `https://${CAS_HOST}`;
 const AES_CHARS = "ABCDEFGHJKMNPQRSTWXYZabcdefhijkmnprstwxyz2345678";
 
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
+
+// ---------- 诊断轨迹 ----------
+
+/**
+ * 登录链路的逐步记录。
+ *
+ * 只在失败时收集（成功时是空数组），不落盘、不进日志。
+ * 每条只写「主机 + 路径 + 状态码 + 这一跳种了哪些 cookie 名」：
+ *   - 不写 query —— ticket 就在 query 里
+ *   - 不写 cookie 值 —— 那是凭据
+ *   - 不写密码 —— 从来没进过这里
+ *
+ * 有了它，「认证通过但办事大厅不认」这种跨域会话问题才能靠一次失败定位到具体一跳，
+ * 否则只能靠猜操作系统、Node 版本、LB 粘性这些看不见的东西。
+ */
+export type Trace = string[];
+
+export function traceAdd(trace: Trace | undefined, line: string) {
+  if (!trace) return;
+  if (trace.length >= 40) return;
+  trace.push(line);
+}
+
+/** 只保留 host + path，去掉 query/hash */
+function shortUrl(url: string) {
+  try {
+    const u = new URL(url);
+    return `${u.hostname}${u.pathname}`;
+  } catch {
+    return "invalid-url";
+  }
+}
 
 function randomString(n: number) {
   let s = "";
@@ -70,8 +103,10 @@ function readSetCookies(headers: Headers): string[] {
 export class CookieJar {
   private store = new Map<string, Map<string, string>>();
 
-  addFromResponse(res: Response, requestHost: string) {
+  /** 收下响应里的 cookie，返回「本次种下的 cookie 名」（供轨迹记录，不含值） */
+  addFromResponse(res: Response, requestHost: string): string[] {
     const list = readSetCookies(res.headers);
+    const touched: string[] = [];
 
     for (const raw of list) {
       const parts = raw.split(";").map((p) => p.trim());
@@ -91,7 +126,9 @@ export class CookieJar {
       const jar = this.store.get(domain)!;
       if (value === "" && /expires=Thu, 01 Jan 1970|max-age=0/i.test(raw)) jar.delete(name);
       else jar.set(name, value);
+      touched.push(name);
     }
+    return touched;
   }
 
   headerFor(url: string) {
@@ -115,6 +152,28 @@ export class CookieJar {
     return out.join("; ");
   }
 
+  /**
+   * 只保留指定域的 cookie，生成一个新 jar。
+   *
+   * 用途：第一次票据校验失败后，用「只带 TGC 的干净 jar」重试。
+   * ehall 在失败那次可能已经种了一个游客 asessionid，带着它再验票据，
+   * 有些 SP 会复用那个游客会话、直接忽略新票 —— 清掉才验得干脆。
+   */
+  subset(hosts: string[]): CookieJar {
+    const next = new CookieJar();
+    for (const h of hosts) {
+      const jar = this.store.get(h);
+      if (jar) next.store.set(h, new Map(jar));
+    }
+    return next;
+  }
+
+  /** 某个域下现在有哪些 cookie 名（诊断用，不含值） */
+  namesFor(host: string): string[] {
+    const jar = this.store.get(host);
+    return jar ? Array.from(jar.keys()) : [];
+  }
+
   dump(): [string, [string, string][]][] {
     return Array.from(this.store, ([d, jar]) => [d, Array.from(jar)] as [string, [string, string][]]);
   }
@@ -131,21 +190,39 @@ export class CookieJar {
 export async function requestWith(
   jar: CookieJar,
   url: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  trace?: Trace
 ) {
   const host = new URL(url).hostname.toLowerCase();
   const cookie = jar.headerFor(url);
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      "User-Agent": UA,
-      ...(cookie ? { Cookie: cookie } : {}),
-      ...((options.headers as Record<string, string>) || {}),
-    },
-    redirect: "manual",
-    cache: "no-store",
-  });
-  jar.addFromResponse(res, host);
+  const method = (options.method || "GET").toUpperCase();
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      ...options,
+      headers: {
+        "User-Agent": UA,
+        ...(cookie ? { Cookie: cookie } : {}),
+        ...((options.headers as Record<string, string>) || {}),
+      },
+      redirect: "manual",
+      cache: "no-store",
+    });
+  } catch (e) {
+    // 网络层失败和「会话没建起来」是两种完全不同的病，必须分开记
+    traceAdd(trace, `${method} ${shortUrl(url)} 网络失败 ${e instanceof Error ? e.message : String(e)}`);
+    throw e;
+  }
+
+  const added = jar.addFromResponse(res, host);
+  const location = res.headers.get("location");
+  traceAdd(
+    trace,
+    `${method} ${shortUrl(url)} ${res.status}` +
+      (added.length ? ` +[${added.join(",")}]` : "") +
+      (location ? ` → ${shortUrl(new URL(location, url).toString())}` : "")
+  );
   return res;
 }
 
@@ -155,11 +232,11 @@ function pick(html: string, re: RegExp) {
 }
 
 /** 把 302 链跟完，让目标站点种下自己的会话 cookie */
-async function follow(jar: CookieJar, start: string, max = 12) {
+async function follow(jar: CookieJar, start: string, max = 12, trace?: Trace) {
   let current = start;
   let finalUrl = start;
   for (let i = 0; i < max; i++) {
-    const r = await requestWith(jar, current);
+    const r = await requestWith(jar, current, {}, trace);
     finalUrl = r.url || current;
     const next = r.headers.get("location");
     if (r.status >= 300 && r.status < 400 && next) {
@@ -184,11 +261,17 @@ export class CasError extends Error {
  * 用学号 + 密码登录 CAS，并落到 service 指定的系统。
  * 返回的 jar 里同时含 authserver 的 TGC —— 后续可用 casSsoInto 换别的系统，不必再输密码。
  */
-export async function casLogin(username: string, password: string, service: string) {
+export async function casLogin(
+  username: string,
+  password: string,
+  service: string,
+  trace?: Trace
+) {
   const jar = new CookieJar();
   const loginUrl = `${CAS}/authserver/login?service=${encodeURIComponent(service)}`;
+  traceAdd(trace, `service=${service}`);
 
-  const page = await requestWith(jar, loginUrl);
+  const page = await requestWith(jar, loginUrl, {}, trace);
   const html = await page.text();
 
   const salt = pick(html, /id="pwdEncryptSalt"\s+value="([^"]*)"/);
@@ -198,6 +281,8 @@ export async function casLogin(username: string, password: string, service: stri
     "e1s1";
   const lt = pick(html, /name="lt"\s+id="lt"\s+value="([^"]*)"/) || "";
 
+  traceAdd(trace, `登录页 长度=${html.length} salt=${salt ? "有" : "无"} lt=${lt ? "有" : "无"}`);
+
   if (!salt) {
     throw new CasError("UNKNOWN", "登录页没有返回 pwdEncryptSalt，学校页面结构可能改了");
   }
@@ -205,7 +290,9 @@ export async function casLogin(username: string, password: string, service: stri
   // 失败次数多的账号会被要求图形验证码，脚本过不去，只能提示用户去浏览器登录一次
   const capRes = await requestWith(
     jar,
-    `${CAS}/authserver/checkNeedCaptcha.htl?username=${encodeURIComponent(username)}&_=${Date.now()}`
+    `${CAS}/authserver/checkNeedCaptcha.htl?username=${encodeURIComponent(username)}&_=${Date.now()}`,
+    {},
+    trace
   );
   let needCaptcha = false;
   try {
@@ -213,6 +300,7 @@ export async function casLogin(username: string, password: string, service: stri
   } catch {
     /* 接口异常按不需要处理 */
   }
+  traceAdd(trace, `图形验证码=${needCaptcha ? "需要" : "不需要"}`);
   if (needCaptcha) {
     throw new CasError(
       "NEED_CAPTCHA",
@@ -240,7 +328,7 @@ export async function casLogin(username: string, password: string, service: stri
       Origin: CAS,
     },
     body: body.toString(),
-  });
+  }, trace);
 
   if (post.status === 200) {
     const failHtml = await post.text();
@@ -258,7 +346,10 @@ export async function casLogin(username: string, password: string, service: stri
 
   const ticketUrl = new URL(location, CAS).toString();
   const ticket = new URL(ticketUrl).searchParams.get("ticket");
-  const finalUrl = await follow(jar, ticketUrl);
+  traceAdd(trace, `拿到 ticket=${ticket ? "是" : "否"}`);
+
+  const finalUrl = await follow(jar, ticketUrl, 12, trace);
+  traceAdd(trace, `最终落地 ${shortUrl(finalUrl)}`);
 
   return { jar, ticket, finalUrl };
 }
@@ -267,14 +358,15 @@ export async function casLogin(username: string, password: string, service: stri
  * 已登录（jar 里有 TGC）时，为另一个系统换 ticket。
  * 走的是 CAS 单点登录，不传密码，因此不会触发重复登录风控。
  */
-export async function casSsoInto(jar: CookieJar, service: string) {
+export async function casSsoInto(jar: CookieJar, service: string, trace?: Trace) {
   const url = `${CAS}/authserver/login?service=${encodeURIComponent(service)}`;
-  const r = await requestWith(jar, url);
+  traceAdd(trace, `SSO 换票 service=${service}`);
+  const r = await requestWith(jar, url, {}, trace);
   const location = r.headers.get("location");
 
   // 没拿到 302 说明 TGC 没生效（过期或被拒），交给调用方决定是否重登
   if (r.status >= 300 && r.status < 400 && location) {
-    return follow(jar, new URL(location, CAS).toString());
+    return follow(jar, new URL(location, CAS).toString(), 12, trace);
   }
   if (r.status === 200) return null;
 

@@ -27,11 +27,31 @@ export default function LoginPanel({ onLoggedIn }: Props) {
   const [step, setStep] = useState("");
   const [error, setError] = useState("");
   const [hint, setHint] = useState("");
+  /** 服务端回传的诊断轨迹（只有失败时才有，且不含密码与 cookie 值） */
+  const [diag, setDiag] = useState<string[]>([]);
+  const [copied, setCopied] = useState(false);
+
+  function diagnosticText() {
+    return diag.join("\n");
+  }
+
+  async function copyDiag() {
+    const text = diagnosticText();
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // 剪贴板被浏览器拦时，退回「手动全选」——下面本来就是可选中的文本
+      setHint("浏览器不允许自动复制，手动选中上面那段文字复制即可");
+    }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     setHint("");
+    setDiag([]);
 
     if (!/^\d{6,16}$/.test(studentId.trim())) {
       setError("学号是 6–16 位数字");
@@ -60,6 +80,16 @@ export default function LoginPanel({ onLoggedIn }: Props) {
         setError(data.message || `登录失败（HTTP ${res.status}）`);
         if (data.code === "NEED_CAPTCHA" || data.code === "RATE_LIMITED") {
           setHint("遇到这种情况不要反复点登录 —— 连续失败只会让风控窗口更长。");
+        }
+        // 服务端把整条链路的走查结果放在 debug.trace 里，原样摊开给人看
+        const d = data.debug;
+        if (d) {
+          const head = [
+            `code=${data.code ?? "-"} http=${res.status} node=${d.node ?? "-"} getSetCookie=${d.getSetCookie ?? "-"}`,
+            `landed=${d.landed ?? "-"}`,
+            `jar=${d.jar ?? "-"}`,
+          ];
+          setDiag([...head, "--- trace ---", ...(Array.isArray(d.trace) ? d.trace : [])]);
         }
         return;
       }
@@ -121,6 +151,26 @@ export default function LoginPanel({ onLoggedIn }: Props) {
 
         {error && <p className="mt-3 text-xs text-red-500">{error}</p>}
         {hint && <p className="mt-2 text-xs text-amber-600">{hint}</p>}
+
+        {diag.length > 0 && (
+          <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-2">
+            <div className="mb-1.5 flex items-center justify-between">
+              <span className="text-[11px] font-medium text-gray-500">
+                诊断信息（不含密码和 cookie 值）
+              </span>
+              <button
+                type="button"
+                onClick={copyDiag}
+                className="rounded border border-gray-300 bg-white px-1.5 py-0.5 text-[11px] text-gray-600 hover:border-indigo-400 hover:text-indigo-600"
+              >
+                {copied ? "已复制" : "复制诊断信息"}
+              </button>
+            </div>
+            <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-[10px] leading-relaxed text-gray-600">
+              {diagnosticText()}
+            </pre>
+          </div>
+        )}
 
         <button
           type="submit"

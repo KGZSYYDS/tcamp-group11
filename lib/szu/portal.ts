@@ -14,7 +14,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { CookieJar, requestWith } from "./cas";
+import { CookieJar, requestWith, traceAdd, type Trace } from "./cas";
 
 export const EHALL = "https://ehall.szu.edu.cn";
 export const JWKW = "https://jwkw.szu.edu.cn";
@@ -65,10 +65,15 @@ function assertJson(text: string, what: string) {
  * 而办事大厅/教务经常是「302 时种会话 cookie、落到 200 的页面本身不再种」，
  * 中间这一跳丢掉，后面所有请求都是未登录状态。
  */
-async function getFollowing(jar: CookieJar, url: string, headers: Record<string, string> = {}) {
+async function getFollowing(
+  jar: CookieJar,
+  url: string,
+  headers: Record<string, string> = {},
+  trace?: Trace
+) {
   let current = url;
   for (let i = 0; i < 10; i++) {
-    const res = await requestWith(jar, current, { headers });
+    const res = await requestWith(jar, current, { headers }, trace);
     const next = res.headers.get("location");
     if (res.status >= 300 && res.status < 400 && next) {
       current = new URL(next, current).toString();
@@ -176,11 +181,18 @@ export async function jwkwAlive(jar: CookieJar) {
   }
 }
 
-export async function ehallAlive(jar: CookieJar) {
+export async function ehallAlive(jar: CookieJar, trace?: Trace) {
   try {
-    const r = await getFollowing(jar, `${EHALL}/jsonp/userInfo.json`);
-    return /"hasLogin"\s*:\s*true/.test(r.text);
-  } catch {
+    const r = await getFollowing(jar, `${EHALL}/jsonp/userInfo.json`, {}, trace);
+    const alive = /"hasLogin"\s*:\s*true/.test(r.text);
+    traceAdd(
+      trace,
+      `userInfo ${r.status} hasLogin=${alive ? "true" : "false"} len=${r.text.length} ` +
+        `ehall cookie=[${jar.namesFor(new URL(EHALL).hostname).join(",")}]`
+    );
+    return alive;
+  } catch (e) {
+    traceAdd(trace, `userInfo 异常 ${e instanceof Error ? e.message : String(e)}`);
     return false;
   }
 }

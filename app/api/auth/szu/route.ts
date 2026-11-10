@@ -9,7 +9,7 @@
  * 不写日志、不进数据库、不落任何文件。
  */
 import { NextResponse } from "next/server";
-import { CasError, CookieJar, casLogin, casSsoInto } from "@/lib/szu/cas";
+import { CAS_HOST, CasError, CookieJar, casLogin, casSsoInto, traceAdd, type Trace } from "@/lib/szu/cas";
 import {
   EHALL_SERVICE,
   JWKW_SERVICE,
@@ -63,30 +63,36 @@ export async function POST(req: Request) {
 
   // 只在出错时回传的诊断信息：不含密码、不含 cookie 值
   const debug: Record<string, unknown> = {};
+  const trace: Trace = [];
 
   try {
     // ① 一次密码登录，落到办事大厅
-    const { jar, finalUrl } = await casLogin(studentId, password, EHALL_SERVICE);
+    let { jar, finalUrl } = await casLogin(studentId, password, EHALL_SERVICE, trace);
     password = "";
 
     /**
      * ①.5 「CAS 给了 ticket」不等于「办事大厅认了这个会话」。
      *
-     * 实测过的失败形态：票据校验那一步 ehall 一次种 4 条 cookie
-     * （route / MOD_AUTH_CAS / asessionid / JSESSIONID），如果运行环境把
-     * 多条 Set-Cookie 合并成一条、而解析只取第一条，MOD_AUTH_CAS 就丢了，
-     * 随后 userInfo.json 直接返回 hasLogin:false —— 看起来像「登录成功但没登录」。
+     * 票据校验那一步 ehall 一次种 4 条 cookie
+     * （route / MOD_AUTH_CAS / asessionid / JSESSIONID），丢一条就不算登录。
      *
-     * 这里先自检；没认就用 TGC 再换一次 ticket（不传密码，不触发重复登录风控）。
+     * 重试刻意用「只带 TGC 的干净 jar」而不是复用原 jar：
+     * 失败那次 ehall 可能已经种了一个游客 asessionid，带着它重新验票，
+     * 有些 SP 会复用那个游客会话、直接忽略新票。清掉才验得干脆。
      */
-    let ehallOk = await ehallAlive(jar);
+    let ehallOk = await ehallAlive(jar, trace);
     if (!ehallOk) {
       debug.ehallRetry = true;
+      traceAdd(trace, "—— 用干净 jar（只带 TGC）重试 ——");
       try {
-        await casSsoInto(jar, EHALL_SERVICE);
-        ehallOk = await ehallAlive(jar);
-      } catch {
-        /* 重试也失败就往下统一报错 */
+        const fresh = jar.subset([CAS_HOST]);
+        await casSsoInto(fresh, EHALL_SERVICE, trace);
+        if (await ehallAlive(fresh, trace)) {
+          jar = fresh;
+          ehallOk = true;
+        }
+      } catch (e) {
+        traceAdd(trace, `重试异常 ${e instanceof Error ? e.message : String(e)}`);
       }
     }
     if (!ehallOk) {
@@ -95,9 +101,10 @@ export async function POST(req: Request) {
       debug.getSetCookie = typeof probe.getSetCookie === "function";
       debug.landed = String(finalUrl || "").replace(/^https?:\/\//, "").split("?")[0];
       debug.jar = jarSummary(jar);
+      debug.trace = trace;
       return fail(
         502,
-        "统一认证通过了，但办事大厅没认这次会话。已自动重试一次仍失败，请把这行下面的 debug 信息发给我",
+        "统一认证通过了，但办事大厅没认这次会话（已用干净会话重试一次）。请点下方「复制诊断信息」发给我",
         "EHALL_SESSION",
         debug
       );
@@ -107,7 +114,7 @@ export async function POST(req: Request) {
     let jwkwOk = false;
     let jwkwError: string | undefined;
     try {
-      const landed = await casSsoInto(jar, JWKW_SERVICE);
+      const landed = await casSsoInto(jar, JWKW_SERVICE, trace);
       jwkwOk = Boolean(landed);
     } catch (e) {
       // 教务不可用不影响看课表以外的东西，但要把原因带出去：
@@ -116,6 +123,7 @@ export async function POST(req: Request) {
     }
 
     // ③ 档案是学籍的权威口径，拿不到就不算登录成功
+    traceAdd(trace, "—— 读取学籍 ——");
     const profile = await fetchProfile(jar);
     if (!profile.studentId) profile.studentId = studentId;
 
@@ -150,11 +158,12 @@ export async function POST(req: Request) {
     });
     return res;
   } catch (e) {
+    // 任何一步失败都带上轨迹：登录页结构、ticket、每一跳跳转、cookie 名都在里面
     if (e instanceof CasError) {
       const status = e.code === "BAD_CREDENTIALS" ? 401 : e.code === "RATE_LIMITED" ? 429 : 502;
-      return fail(status, e.message, e.code);
+      return fail(status, e.message, e.code, trace.length ? { ...debug, trace } : undefined);
     }
     const message = e instanceof Error ? e.message : "登录失败";
-    return fail(502, message, "PORTAL", Object.keys(debug).length ? debug : undefined);
+    return fail(502, message, "PORTAL", trace.length ? { ...debug, trace } : undefined);
   }
 }
