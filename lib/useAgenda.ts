@@ -22,6 +22,8 @@ import {
 import type { LocalTimetable } from "@/lib/local-store";
 import type { SzUser } from "@/lib/szu-types";
 import { sameAffiliation, sameGrade } from "@/lib/visibility";
+import { RELATED_THRESHOLD, scoreEvent } from "@/lib/relevance.mjs";
+import { categoryOf, collegeNamesIn, isSchoolWide } from "@/lib/categorize.mjs";
 import { buildAgenda, dateKey } from "@/lib/agenda";
 import type { AgendaEvent } from "@/lib/agenda";
 
@@ -243,30 +245,77 @@ export function useAgenda(session: SzUser | null): AgendaState {
  * 无法确定相关性的公共事件默认显示，而不是静默丢弃。只有画像有对应字段
  * 且明确不匹配时才过滤。这样用户没填学院/年级时不会莫名看不到学院通知。
  */
+/**
+ * 相关性过滤 + 打分。
+ *
+ * 「仅看相关」原来是二元判断，且 scope=school 直接放行；但批量入库把 627 条通知
+ * 全标成了 school，等于没筛。现在改成 0–100 分（lib/relevance.mjs），过 45 分才留。
+ *
+ * 学院/年级的归一化匹配仍交给 visibility.ts（它能认「计软」↔「计算机与软件」），
+ * 结论通过 collegeMatched / gradeMatched 传给打分函数，避免两套比较规则打架。
+ */
 export function filterByProfile(
   events: AgendaEvent[],
   profile: Profile | null,
   onlyRelated: boolean,
   hiddenIds: string[]
 ): AgendaEvent[] {
-  return events.filter((item) => {
+  const viewer = {
+    college: profile?.college,
+    major: profile?.major,
+    grade: profile?.grade,
+    level: profile?.level,
+    courses: profile?.courses || [],
+  };
+
+  const scored = events.map((item) => {
+    // 分类只看来源与标题：课表→课程；本机待办/签到→作业；
+    // 公共通知按标题里有没有学院名判校园 / 个人 / 别的学院
+    const colleges = collegeNamesIn(item.title);
+    const viewerCollege = profile?.college || "";
+    const category = categoryOf({
+      source: item.source,
+      rawKind: item.rawKind,
+      scope: item.scope,
+      hasCollege: colleges.length > 0,
+      schoolWide: isSchoolWide(item.title),
+      isMine: Boolean(viewerCollege) && colleges.some((c) => sameAffiliation(c, viewerCollege)),
+    });
+
+    if (!item.scope || item.scope === "personal") {
+      return { ...item, category, score: 100, reasons: ["仅自己"] };
+    }
+    const result = scoreEvent(
+      {
+        kind: item.rawKind,
+        title: item.title,
+        note: item.note,
+        scope: item.scope,
+        college: item.college,
+        grade: item.grade,
+        at: new Date(`${item.date}T${item.start || "00:00"}:00`),
+        allDay: item.allDay,
+        location: item.location,
+        collegeMatched:
+          item.scope === "college" && item.college && profile?.college
+            ? sameAffiliation(item.college, profile.college)
+            : undefined,
+        gradeMatched:
+          item.scope === "grade" && item.grade && profile?.grade
+            ? sameGrade(item.grade, profile.grade)
+            : undefined,
+      },
+      viewer
+    );
+    return { ...item, category, score: result.score, reasons: result.reasons };
+  });
+
+  return scored.filter((item) => {
     if (hiddenIds.includes(item.id)) return false;
-    if (!item.scope || item.scope === "personal" || item.scope === "school") return true;
+    // 个人数据先校验归属：不是本人的一律不展示（上游已过滤，这里兜底）
+    if (!item.scope || item.scope === "personal") return true;
     if (!onlyRelated) return true;
-    if (item.scope === "college") {
-      if (!profile?.college) return true;
-      // 学籍给全称、通知常写简称，必须走归一化 + 简称包含，精确比较永远不成立
-      return !item.college || sameAffiliation(item.college, profile.college);
-    }
-    if (item.scope === "grade") {
-      if (!profile?.grade) return true;
-      return !item.grade || sameGrade(item.grade, profile.grade);
-    }
-    if (item.scope === "undergraduate" || item.scope === "postgraduate" || item.scope === "doctoral") {
-      if (!profile?.level) return true;
-      return item.scope === profile.level;
-    }
-    return true;
+    return (item.score ?? 100) >= RELATED_THRESHOLD;
   });
 }
 
@@ -277,6 +326,10 @@ export function groupByDate(events: AgendaEvent[]): Map<string, AgendaEvent[]> {
     const list = map.get(item.date);
     if (list) list.push(item);
     else map.set(item.date, [item]);
+  }
+  // 同一天内先看得分高的，同分按时间。月历格子会按开始时间重排，不受影响。
+  for (const list of map.values()) {
+    list.sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || a.start.localeCompare(b.start));
   }
   return map;
 }

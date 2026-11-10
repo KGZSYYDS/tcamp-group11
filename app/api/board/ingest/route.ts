@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createEvent, eventExistsBySourceUrl } from "@/lib/data";
+import { extractLocation } from "@/lib/location.mjs";
 import type { EventKind } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -88,6 +89,7 @@ export async function POST(request: Request) {
         note: [item.department, item.content?.slice(0, 300)]
           .filter(Boolean)
           .join("｜") || undefined,
+        location: extractLocation(item.content || "").location ?? undefined,
         scope: "school",
         source: "board",
         sourceUrl: item.url,

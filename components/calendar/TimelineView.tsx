@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AlignVerticalJustifyStart, Coffee, MapPin } from "lucide-react";
 import type { AgendaEvent } from "@/lib/agenda";
-import { agendaTimeLabel, dateKey } from "@/lib/agenda";
+import { agendaTimeLabel, dateKey, relevanceHint } from "@/lib/agenda";
 import AnimatedContent from "./ui/AnimatedContent";
 import { VISUAL_META } from "./ClockFace";
 
@@ -98,6 +98,7 @@ export default function TimelineView({
                           type="button"
                           className={`timeline-event${event.done ? " is-done" : ""}`}
                           onClick={() => onEvent(event)}
+                          title={relevanceHint(event)}
                           style={
                             {
                               "--event-color": meta.dark,

@@ -43,6 +43,16 @@ export interface AgendaEvent {
   course?: string;
   /** 已完成的 DDL 用于弱化展示 */
   done?: boolean;
+  /** 相关性分数 0–100：同一天内先看得分高的 */
+  score?: number;
+  /** 打分依据，用于 tooltip 解释为什么排在前面 */
+  reasons?: string[];
+  /**
+   * 筛选分类，由 lib/categorize.mjs 判定：
+   * course=课表 / homework=本机待办与签到 / campus=全校通知 / personal=本学院通知
+   * other=别的学院的通知（不进任何分类，仅「全部」可见）
+   */
+  category?: "course" | "homework" | "campus" | "personal" | "other";
 }
 
 const KIND_LABEL: Record<EventKind, string> = {
@@ -77,8 +87,10 @@ function addMinutes(date: Date, minutes: number): Date {
 
 /** 事件结束时间：优先用 endAt，否则按全天 / 默认 60 分钟推算 */
 function resolveEnd(start: Date, endAt: Date | null, allDay: boolean): Date {
-  if (endAt && endAt.getTime() >= start.getTime()) return endAt;
-  return allDay ? new Date(start.getFullYear(), start.getMonth(), start.getDate(), 23, 59) : addMinutes(start, 60);
+  if (endAt && endAt.getTime() > start.getTime()) return endAt;
+  // 全天事件到当天 23:59；有钟点但没写结束时间的，就画成一个「点」，
+  // 不编造「持续一小时」——那会让日历看起来像是我们自己臆想出来的安排。
+  return allDay ? new Date(start.getFullYear(), start.getMonth(), start.getDate(), 23, 59) : start;
 }
 
 export interface MapContext {
@@ -99,7 +111,7 @@ export function mapCalEvent(event: CalEvent, ctx: MapContext = {}): AgendaEvent 
     date: dateKey(start),
     start: event.allDay ? "00:00" : timeKey(start),
     end: event.allDay ? "23:59" : timeKey(end),
-    location: event.location || event.course || "",
+    location: event.location || "",
     type,
     visual: type,
     preferenceKey: event.sourceUrl ? `cloud:${event.sourceUrl}|${event.kind}|${event.startAt}` : undefined,
@@ -126,23 +138,15 @@ export function mapDdl(ddl: Ddl): AgendaEvent | null {
   if (!due) return null;
   const type: AgendaType = ddl.source === "lms-sync" ? "course" : ddl.source === "manual" ? "personal" : "imported";
 
-  // 截止在 00:00–00:29 时，往前推 30 分钟会落到前一天。
-  // 此时日期应跟着开始时间走，否则会出现「日期 11-10、时间 23:30」这种自相矛盾的数据
-  const start = addMinutes(due, -30);
-  const crossesDay =
-    start.getFullYear() !== due.getFullYear() ||
-    start.getMonth() !== due.getMonth() ||
-    start.getDate() !== due.getDate();
-  const anchor = crossesDay ? start : due;
-
+  // 作业是一个「截止点」，不是一段任务：不提前 30 分钟、也不给假时长，
+  // 否则日历上会出现一块根本没有发生过的 30 分钟。
   return {
     id: `ddl-${ddl.id}`,
     title: ddl.title,
-    date: dateKey(anchor),
-    // 跨日时把区间截断到当天，避免 end 小于 start 让弧带与块高计算失效
-    start: timeKey(start),
-    end: crossesDay ? "23:59" : timeKey(due),
-    location: ddl.course || "",
+    date: dateKey(due),
+    start: timeKey(due),
+    end: timeKey(due),
+    location: "",
     type,
     visual: type === "course" ? "ddl" : type,
     source: "作业截止",
@@ -167,7 +171,7 @@ export function mapCheckin(checkin: Checkin): AgendaEvent | null {
     date: dateKey(at),
     start: timeKey(at),
     end: timeKey(addMinutes(at, 15)),
-    location: checkin.teacher ? `${checkin.teacher} 老师` : "",
+    location: "",
     type: "course",
     visual: "course",
     source: "签到",
@@ -188,7 +192,12 @@ export function durationMinutes(event: AgendaEvent): number {
 
 export function agendaTimeLabel(event: AgendaEvent): string {
   if (event.allDay) return "全天";
-  if (event.rawKind === "deadline") return `${event.start} 截止`;
+  if (event.rawKind === "deadline") {
+    // 原文没写钟点的截止，库里存的是 23:59（为了排序），别把它当成真实时间显示
+    const hasClock = /截止：\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2}/.test(event.note || "");
+    return hasClock ? `${event.start} 截止` : "截止";
+  }
+  if (event.end <= event.start) return event.start;
   return `${event.start}–${event.end}`;
 }
 
@@ -290,4 +299,13 @@ export function buildAgenda(
   return merged.sort(
     (a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start)
   );
+}
+
+/**
+ * 悬停提示：这条为什么排在前面。
+ * 分数只在有依据时才有意义，没算过就不显示，避免出现「相关度 undefined」。
+ */
+export function relevanceHint(event: AgendaEvent): string | undefined {
+  if (!event.reasons?.length) return undefined;
+  return `相关度 ${event.score ?? "-"}：${event.reasons.join("、")}`;
 }
