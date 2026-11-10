@@ -313,7 +313,8 @@ export function groupByDate(events: AgendaEvent[]): Map<string, AgendaEvent[]> {
     if (list) list.push(item);
     else map.set(item.date, [item]);
   }
-  // 同一天内先看得分高的，同分按时间。月历格子会按开始时间重排，不受影响。
+  // 同一天内先看得分高的，同分按时间。月历、时间轴都直接消费这个顺序，
+  // 「先看更相关的」比「先看更早的」更贴近校园通知的阅读习惯。
   for (const list of map.values()) {
     list.sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || a.start.localeCompare(b.start));
   }

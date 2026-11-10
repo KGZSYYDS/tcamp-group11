@@ -11,7 +11,13 @@
  *
  * 用法：npm run test:deadline
  */
-import { extractDeadline, isFacultyDeadline, isActionableDeadline } from "../lib/deadline.mjs";
+import {
+  extractDeadline,
+  hasExplicitClock,
+  isActionableDeadline,
+  isFacultyDeadline,
+  stripDeadlinePrefix,
+} from "../lib/deadline.mjs";
 
 const cases = [
   ["报名截止时间：2026年11月9日10:00，先报先得", "2026-11-05", "2026-11-09", "10:00"],
@@ -49,7 +55,48 @@ for (const [title, want] of filters) {
 }
 
 const total = cases.length + filters.length;
-console.log(`\n${pass}/${total} 通过`);
+
+/**
+ * 23:59 是采集器补的排序值，不是原文时刻。
+ * 展示层必须能把「原文只写了日期」和「原文写了钟点」区分开，
+ * 否则学生会看到一条并不存在的「23:59 截止」。
+ */
+const clockCases = [
+  // 原文带钟点 → 可以显示时间
+  ["[board-taxonomy-v1:teaching:-]\n截止：2026-11-09 10:30｜原话：报名时间：11月6日10:00—11月9日10:30", true],
+  ["截止：2026-11-29 17:30｜原话：申请时间：11月16日9:00—11月29日17:30", true],
+  // 原文只有日期 → 不能显示 23:59
+  ["截止：2026-11-20｜原话：五、申请截止日期： 2026年11月20日", false],
+  ["[board-taxonomy-v1:students:review]\n截止：2026-12-01", false],
+  // 手填 / 畅课 / 群聊没有「截止：」前缀，时间是用户选的就是准的
+  ["实验4 提交到畅课", true],
+  ["", true],
+  ["来自群：计软2026级1班 · 提醒:提前30分钟 · 原话：周五前交实验报告", true],
+];
+for (const [note, want] of clockCases) {
+  const got = hasExplicitClock(note);
+  if (got === want) pass++;
+  else fails.push(`钟点判断：${JSON.stringify(note)}\n     期望 ${want}，实际 ${got}`);
+}
+
+// 卡片上已经展示过的截止时间/发布单位，备注里不该再重复一遍
+const stripCases = [
+  [
+    "[board-taxonomy-v1:teaching:-]\n截止：2026-11-09 10:30｜原话：报名时间：11月6日—11月9日｜发布：教务部",
+    "原话：报名时间：11月6日—11月9日",
+  ],
+  ["截止：2026-11-20", ""],
+  ["来自群：计软2026级1班 · 原话：周五前交实验报告", "原话：周五前交实验报告"],
+  ["实验4 提交到畅课", "实验4 提交到畅课"],
+];
+for (const [note, want] of stripCases) {
+  const got = stripDeadlinePrefix(note);
+  if (got === want) pass++;
+  else fails.push(`备注清理：${JSON.stringify(note)}\n     期望 ${JSON.stringify(want)}，实际 ${JSON.stringify(got)}`);
+}
+
+const totalAll = total + clockCases.length + stripCases.length;
+console.log(`\n${pass}/${totalAll} 通过`);
 if (fails.length) {
   console.log("\n失败：");
   for (const f of fails) console.log("  ✗ " + f);

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { buildDeadlines } from "@/lib/deadlines";
 import { listEvents } from "@/lib/data";
+import { hasExplicitClock } from "@/lib/deadline.mjs";
 import { loadDdls, loadDoneKeys } from "@/lib/local-store";
 import { computeReminders, reminderKey } from "@/lib/reminders.mjs";
 import type { ReminderItem } from "@/lib/reminders.mjs";
@@ -33,7 +34,11 @@ function writeDismissed(keys: string[]) {
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
-function formatDue(dueAt: string): string {
+/**
+ * 提醒条里的截止时刻。
+ * 原文只写了日期时，库里补的 23:59 只是排序值，这里只给日期，不编造时刻。
+ */
+function formatDue(dueAt: string, withTime = true): string {
   const d = new Date(dueAt);
   if (Number.isNaN(d.getTime())) return "";
   const now = new Date();
@@ -41,6 +46,7 @@ function formatDue(dueAt: string): string {
     d.getFullYear() === now.getFullYear() &&
     d.getMonth() === now.getMonth() &&
     d.getDate() === now.getDate();
+  if (!withTime) return sameDay ? "今天内" : `${d.getMonth() + 1}/${d.getDate()}`;
   const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
   return sameDay ? hm : `${d.getMonth() + 1}/${d.getDate()} ${hm}`;
 }
@@ -119,7 +125,11 @@ export default function ReminderBar({
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs font-medium leading-snug">
             还有 {items.length} 件要交 · 最近：{next.title}
-            <span className="font-normal opacity-80"> {formatDue(next.dueAt)} 截止</span>
+            <span className="font-normal opacity-80">
+              {" "}
+              {formatDue(next.dueAt, hasExplicitClock(next.note))}
+              {hasExplicitClock(next.note) ? " 截止" : " 当天截止"}
+            </span>
           </p>
           {overdue > 0 && (
             <p className="text-[10px] opacity-70">另有 {overdue} 条已过期</p>

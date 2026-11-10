@@ -5,6 +5,7 @@ import { motion } from "motion/react";
 import { Coffee, ChevronLeft, ChevronRight } from "lucide-react";
 import type { AgendaEvent, AgendaVisual } from "@/lib/agenda";
 import { agendaTimeLabel, boardCategoryLabel, dateKey, durationMinutes, relevanceHint } from "@/lib/agenda";
+import { hasExplicitClock } from "@/lib/deadline.mjs";
 import { orbitTracks } from "@/lib/orbit";
 import { SlidingNumber } from "./ui/SlidingNumber";
 import { useReducedMotion } from "./ui/useMotionPreference";
@@ -88,6 +89,11 @@ export function EventRow({
   const meta = VISUAL_META[event.visual];
   const minutes = durationMinutes(event);
   const source = boardCategoryLabel(event) || event.source;
+  /**
+   * 只写了日期的公文通截止，库里存的是 23:59（排序用），不是真实时刻。
+   * 直接显示会变成「23:59 / 截止」，让人以为通知要求 23:59 前交。
+   */
+  const dateOnlyDeadline = event.rawKind === "deadline" && !event.allDay && !hasExplicitClock(event.note);
   return (
     <motion.button
       type="button"
@@ -103,8 +109,16 @@ export function EventRow({
       }
     >
       <div className="event-time">
-        <strong>{event.allDay ? "全天" : event.start}</strong>
-        <span>{event.allDay ? "　" : event.rawKind === "deadline" ? "截止" : event.end}</span>
+        <strong>{event.allDay ? "全天" : dateOnlyDeadline ? "截止" : event.start}</strong>
+        <span>
+          {event.allDay
+            ? "　"
+            : event.rawKind === "deadline"
+              ? dateOnlyDeadline
+                ? "当天"
+                : "截止"
+              : event.end}
+        </span>
       </div>
       <div className="event-symbol">
         <span className="event-symbol-letter">{meta.name.slice(0, 1)}</span>

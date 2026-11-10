@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CalEvent, Ddl } from "@/lib/types";
 import { listEvents } from "@/lib/data";
 import { buildDeadlines, sourceLabel, type DeadlineSource, type UnifiedDeadline } from "@/lib/deadlines";
+import { hasExplicitClock, stripDeadlinePrefix } from "@/lib/deadline.mjs";
 import {
   addDdl,
   loadDdls,
@@ -17,14 +18,18 @@ import LmsSync from "./LmsSync";
 const HOUR = 3600 * 1000;
 type Filter = "all" | "pending" | "done";
 
-function formatDue(iso: string) {
+/**
+ * 截止时刻的展示。
+ *
+ * 公文通/官网里只写了日期的截止，采集器会补成当天 23:59 以便排序；
+ * 那个 23:59 不是原文，`withTime=false` 时只显示日期，避免误导。
+ */
+function formatDue(iso: string, withTime = true) {
   return new Intl.DateTimeFormat("zh-CN", {
     month: "numeric",
     day: "numeric",
     weekday: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
+    ...(withTime ? { hour: "2-digit", minute: "2-digit", hour12: false } : {}),
   }).format(new Date(iso));
 }
 
@@ -74,6 +79,8 @@ function DdlCard({
 }) {
   const r = remainingText(d.dueAt, now);
   const done = d.status === "done";
+  const hasClock = hasExplicitClock(d.note);
+  const noteBody = stripDeadlinePrefix(d.note);
   return (
     <article className={`rounded-xl bg-white p-4 shadow-sm transition-opacity ${done ? "opacity-50" : ""}`}>
       <div className="flex flex-wrap items-center gap-2">
@@ -96,8 +103,9 @@ function DdlCard({
         )}
       </div>
       <div className="mt-2 text-sm text-gray-500">
-        截止：{formatDue(d.dueAt)}
-        {d.note && <span className="ml-3 text-gray-400">{d.note.slice(0, 90)}</span>}
+        截止：{formatDue(d.dueAt, hasClock)}
+        {!hasClock && <span className="ml-1 text-gray-400">（原文只写了日期）</span>}
+        {noteBody && <span className="ml-3 text-gray-400">{noteBody.slice(0, 90)}</span>}
       </div>
       <div className="mt-3 flex items-center gap-3 text-sm">
         <button

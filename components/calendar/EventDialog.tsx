@@ -222,7 +222,7 @@ export default function EventDialog({
                   <button key={event.id} type="button" onClick={() => onSelect(event)}>
                     <h3>{event.title}</h3>
                     <p>
-                      {event.date}　{event.allDay ? "全天" : event.start}　
+                      {event.date}　{agendaTimeLabel(event)}　
                       {VISUAL_META[event.visual].name}
                     </p>
                     <span aria-hidden="true">›</span>

@@ -1,6 +1,7 @@
 import type { CalEvent, Checkin, Ddl, EventKind } from "./types";
 import type { MyEvent, PersonalItem, TimetableSession } from "./local-store";
 import { boardGroup, boardNoticeId, inferBoardSubtype, readBoardMetadata } from "./board-taxonomy.mjs";
+import { hasExplicitClock } from "./deadline.mjs";
 import officialGroups from "../data/board/official-groups.json";
 
 export type AgendaType = "course" | "notice" | "personal" | "imported";
@@ -206,8 +207,7 @@ export function agendaTimeLabel(event: AgendaEvent): string {
   if (event.allDay) return "全天";
   if (event.rawKind === "deadline") {
     // 原文没写钟点的截止，库里存的是 23:59（为了排序），别把它当成真实时间显示
-    const hasClock = /截止：\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2}/.test(event.note || "");
-    return hasClock ? `${event.start} 截止` : "截止";
+    return hasExplicitClock(event.note) ? `${event.start} 截止` : "截止";
   }
   if (event.end <= event.start) return event.start;
   return `${event.start}–${event.end}`;
