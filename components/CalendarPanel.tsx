@@ -6,8 +6,9 @@ import {
   createEvent,
   deleteEvent,
   getProfile,
-  listEvents,
+  listEventsRange,
 } from "@/lib/data";
+import { RELATED_THRESHOLD, scoreEvent } from "@/lib/relevance.mjs";
 import {
   addMyEvent,
   loadCheckins,
@@ -37,6 +38,10 @@ interface CalItem {
   own: boolean;
   college?: string;
   grade?: string;
+  /** 相关性分数 0–100；同一天内按它排序 */
+  score?: number;
+  /** 打分的依据，用于 tooltip 解释「为什么它会排前面」 */
+  reasons?: string[];
 }
 
 const KIND_META: Record<ItemKind, { label: string; chip: string; badge: string }> = {
@@ -135,7 +140,11 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
     try {
       // 云库只剩公共事件；作业、签到、课表、自建事件全在本机，直接同步读。
       // 云端失败不该让本机那几份也看不见，所以分开处理。
-      const events = await listEvents().catch(() => {
+      // 只取当前月份前后各一个月：全表 636 行实测 15 秒都读不完，
+      // 而按月查询 12 行约 1 秒。跨月切换时下面会重新拉。
+      const from = new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1);
+      const to = new Date(cursor.getFullYear(), cursor.getMonth() + 2, 1);
+      const events = await listEventsRange(from, to).catch(() => {
         cloudFailed = true;
         return [] as CalEvent[];
       });
@@ -248,33 +257,53 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
       setErrorMsg(e instanceof Error ? e.message : "数据加载失败");
     }
     setLoaded(true);
-  }, [currentUserId]);
+  }, [currentUserId, cursor]);
 
   useEffect(() => {
     refresh();
   }, [refresh]);
 
-  /** 相关性过滤：公共事件按画像匹配；个人事件只展示本人的 */
+  /** 给每条日程打相关性分：结构匹配 + 正文里的学院/专业/年级/课程 + 类型 + 时效 */
+  const scoredItems = useMemo(() => {
+    const viewer = {
+      college: profile?.college,
+      major: profile?.major,
+      grade: profile?.grade,
+      level: profile?.level,
+      courses: profile?.courses || [],
+    };
+    return items.map((item) => {
+      if (item.scope === "personal") return { ...item, score: 100, reasons: ["仅自己"] };
+      const r = scoreEvent(
+        {
+          kind: item.kind,
+          title: item.title,
+          note: item.detail,
+          scope: item.scope,
+          college: item.college,
+          grade: item.grade,
+          at: item.at,
+          allDay: item.allDay,
+        },
+        viewer
+      );
+      return { ...item, score: r.score, reasons: r.reasons };
+    });
+  }, [items, profile]);
+
+  /**
+   * 「仅看相关」= 分数过线，而不是只看 scope。
+   * 批量入库时通知都被标成 school，只看 scope 等于什么都筛不掉。
+   */
   const visibleItems = useMemo(() => {
-    const userLevel = profile?.level || "undergraduate";
-    return items.filter((item) => {
+    return scoredItems.filter((item) => {
       if (hiddenIds.includes(item.id)) return false;
       // 个人数据先校验归属：不是本人的一律不展示（含采集器写入的他人课表）
       if (item.scope === "personal") return item.own;
-      if (item.scope === "school") return true;
       if (!onlyRelated) return true;
-      if (item.scope === "college") {
-        return Boolean(profile?.college && item.college === profile.college);
-      }
-      if (item.scope === "grade") {
-        return Boolean(profile?.grade && item.grade === profile.grade);
-      }
-      if (item.scope === "undergraduate") return userLevel === "undergraduate";
-      if (item.scope === "postgraduate") return userLevel === "postgraduate";
-      if (item.scope === "doctoral") return userLevel === "doctoral";
-      return true;
+      return (item.score ?? 100) >= RELATED_THRESHOLD;
     });
-  }, [items, onlyRelated, profile, hiddenIds]);
+  }, [scoredItems, onlyRelated, hiddenIds]);
 
   const byDay = useMemo(() => {
     const map = new Map<string, CalItem[]>();
@@ -298,7 +327,13 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
       }
     }
     for (const list of map.values()) {
-      list.sort((a, b) => Number(a.allDay) - Number(b.allDay) || a.at.getTime() - b.at.getTime());
+      // 同一天内先看得分高的，再按时间；全天的排后面
+      list.sort(
+        (a, b) =>
+          (b.score ?? 0) - (a.score ?? 0) ||
+          Number(a.allDay) - Number(b.allDay) ||
+          a.at.getTime() - b.at.getTime()
+      );
     }
     return map;
   }, [visibleItems]);
@@ -672,7 +707,14 @@ export default function CalendarPanel({ currentUserId }: { currentUserId: string
                 <div className="mt-1 space-y-0.5">
                   {dayItems.slice(0, 3).map((item) => (
                     <div key={item.id + (item.continued ? "-c" : "")} className={item.continued ? "opacity-50" : ""}>
-                      <span className={`block truncate rounded px-1 py-0.5 text-[11px] leading-tight ${KIND_META[item.kind].badge}`}>
+                      <span
+                        title={
+                          item.reasons?.length
+                            ? `相关度 ${item.score}：${item.reasons.join("、")}`
+                            : undefined
+                        }
+                        className={`block truncate rounded px-1 py-0.5 text-[11px] leading-tight ${KIND_META[item.kind].badge}`}
+                      >
                         {item.title}
                       </span>
                     </div>

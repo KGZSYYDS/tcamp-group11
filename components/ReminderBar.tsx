@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { buildDeadlines } from "@/lib/deadlines";
-import { listEvents } from "@/lib/data";
+import { listDeadlineEvents } from "@/lib/data";
 import { loadDdls, loadDoneKeys } from "@/lib/local-store";
 import { computeReminders, reminderKey } from "@/lib/reminders.mjs";
 import type { ReminderItem } from "@/lib/reminders.mjs";
@@ -65,7 +65,7 @@ export default function ReminderBar({
 
   const refresh = useCallback(async () => {
     try {
-      const events = await listEvents();
+      const events = await listDeadlineEvents();
       // buildDeadlines 内部已经合并了本机群聊截止
       const deadlines = buildDeadlines(loadDdls(), events, loadDoneKeys());
       const result = computeReminders(deadlines, { dismissed: readDismissed() });

@@ -22,19 +22,8 @@ function assertAffected(data: any[] | null) {
 
 // ---------- 日历事件 ----------
 
-/**
- * 只取公共事件。personal 行一律在服务端过滤掉，不下发到浏览器——
- * 个人数据本来就不该进这张表，这里是不让历史脏数据继续外泄的第二道闸。
- */
-export async function listEvents(): Promise<CalEvent[]> {
-  const rows = unwrap(
-    await cloud.database
-      .from("events")
-      .select("*")
-      .neq("scope", "personal")
-      .order("start_at", { ascending: true })
-  ) as any[];
-  return rows.map((r) => ({
+function toCalEvent(r: any): CalEvent {
+  return {
     id: String(r.id),
     kind: r.kind,
     title: r.title,
@@ -51,7 +40,40 @@ export async function listEvents(): Promise<CalEvent[]> {
     ownerId: r.owner_id ?? undefined,
     source: r.source,
     createdAt: r.created_at,
-  }));
+  };
+}
+
+/**
+ * 按时间窗取公共事件。personal 行一律在服务端过滤掉，不下发到浏览器——
+ * 个人数据本来就不该进这张表，这里是不让历史脏数据继续外泄的第二道闸。
+ *
+ * 不要退化成「拉全表」：636 行实测 15 秒都读不完响应体（云的按行序列化很慢），
+ * 12 行约 1 秒。日历传当前月前后各一个月，截止与提醒走 listDeadlineEvents。
+ */
+export async function listEventsRange(from: Date, to: Date): Promise<CalEvent[]> {
+  const rows = unwrap(
+    await cloud.database
+      .from("events")
+      .select("*")
+      .neq("scope", "personal")
+      .gte("start_at", from.toISOString())
+      .lte("start_at", to.toISOString())
+      .order("start_at", { ascending: true })
+  ) as any[];
+  return rows.map(toCalEvent);
+}
+
+/** 只取公共截止：截止页与提醒条用，39 行，一秒钟内返回 */
+export async function listDeadlineEvents(): Promise<CalEvent[]> {
+  const rows = unwrap(
+    await cloud.database
+      .from("events")
+      .select("*")
+      .neq("scope", "personal")
+      .eq("kind", "deadline")
+      .order("start_at", { ascending: true })
+  ) as any[];
+  return rows.map(toCalEvent);
 }
 
 export async function createEvent(input: CalEventInput) {

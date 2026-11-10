@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CalEvent, Ddl } from "@/lib/types";
-import { listEvents } from "@/lib/data";
+import { listDeadlineEvents } from "@/lib/data";
 import { buildDeadlines, sourceLabel, type DeadlineSource, type UnifiedDeadline } from "@/lib/deadlines";
 import {
   addDdl,
@@ -143,7 +143,7 @@ export default function DdlPanel() {
     setDdls(loadDdls());
     setDoneKeys(loadDoneKeys());
     try {
-      setEvents(await listEvents());
+      setEvents(await listDeadlineEvents());
       setErrorMsg("");
     } catch (e) {
       setEvents([]);
