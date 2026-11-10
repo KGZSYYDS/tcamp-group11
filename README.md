@@ -1,10 +1,15 @@
 # tcamp-group11 · 深大日历
 
+> **接手先读 [`docs/HANDOVER.md`](docs/HANDOVER.md)** —— 里面写清了该用哪个分支、代码地图、
+> 数据模型、已修与未修的问题、排障手册。本文件只讲启动与命令。
+
 面向深大同学的校园日历：作业 DDL、签到、考试、体测、活动集中在一张月历里。基于 `szu-calendar-demo` 二次开发。
 
 技术栈：Next.js 14（App Router）+ TypeScript + Tailwind CSS；数据走 WorkBuddy 云服务（PostgreSQL / OTP 登录 / 免密钥 LLM）。
 
 ## 启动
+
+**先确认分支是 `hwb`**（`git branch --show-current`）。`main` 是旧架构，缺十项修复，见 [`docs/branch-divergence.md`](docs/branch-divergence.md)。
 
 首次运行会自动安装依赖，装完直接开 http://localhost:3000。
 
@@ -47,13 +52,17 @@ SZU_USER=2024xxxx SZU_PASS=*** node scripts/selfcheck.mjs
 
 ```
 app/            页面与服务端接口（App Router）
-components/     日历 / DDL / 签到 / 粘贴导入 / 登录 / 画像面板
-lib/            云 SDK、数据访问层（RLS 去重导入）、AI 解析、类型定义
+components/     日历 / DDL / 签到 / 粘贴导入 / 微信导入 / 登录 / 画像面板
+  calendar/     月周视图、时间轴、事件弹窗、动效补件
+lib/            云 SDK、数据访问层、视图模型（agenda / useAgenda）、可见性、解析、采集
+  pipeline/     归一化 → 抽取 → 去重 → 落地（尚未接界面）
+  ingest/       采集器适配器契约（尚未接界面）
 extension/      浏览器插件（Manifest V3，Chrome / Edge）
 public/         插件 zip 下载入口
 scripts/        采集器与测试（公文通 / 官网 / 课表 / 微信 / 日期回填）
 examples/       **真实数据样例**，对接方从这里看格式
 docs/schema/    JSON Schema（draft 2020-12）
+docs/           交接文档、分支说明、修复记录、数据来源与契约
 start.bat|sh    一键启动（缺依赖时自动 npm install）
 ```
 
