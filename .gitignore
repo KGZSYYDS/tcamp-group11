@@ -39,3 +39,6 @@ Thumbs.db
 .playwright-cli/
 # 本地工作区数据（不与协作者共享）
 .workbuddy/
+
+# 发布应用的标记文件（本机沙箱绑定，不入库）
+.wbapp_*.genie
