@@ -14,8 +14,9 @@ import {
   Search,
   SlidersHorizontal,
 } from "lucide-react";
-import type { AgendaEvent, AgendaVisual } from "@/lib/agenda";
-import { categoriesOf, dateKey } from "@/lib/agenda";
+import type { AgendaEvent } from "@/lib/agenda";
+import { dateKey } from "@/lib/agenda";
+import { CATEGORIES } from "@/lib/categorize.mjs";
 import { filterByProfile, groupByDate, useAgenda } from "@/lib/useAgenda";
 import type { SzUser } from "@/lib/szu-types";
 import ClockFace, { EventRow, VISUAL_META } from "./calendar/ClockFace";
@@ -39,7 +40,17 @@ const VIEWS: { id: ViewId; label: string; icon: typeof Clock3 }[] = [
   { id: "timeline", label: "时间轴", icon: AlignVerticalJustifyStart },
 ];
 
-const FILTERS: AgendaVisual[] = ["course", "ddl", "notice", "personal"];
+/** 四个分类，由 lib/categorize.mjs 判定；「别的学院」不进分类，只在「全部」可见 */
+type Category = (typeof CATEGORIES)[number];
+type FilterId = Category;
+
+/** 分类 → 配色/文案用的 visual（作业沿用 ddl 的橙、校园沿用 notice 的紫） */
+const CATEGORY_VISUAL: Record<Category, "course" | "ddl" | "notice" | "personal"> = {
+  course: "course",
+  homework: "ddl",
+  campus: "notice",
+  personal: "personal",
+};
 
 const HIDDEN_KEY = "szu-cal-hidden";
 
@@ -71,7 +82,7 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
   const [view, setView] = useState<ViewId>("month");
   const [quickSwitch, setQuickSwitch] = useState(false);
   const [selected, setSelected] = useState<Date>(startOfToday);
-  const [enabled, setEnabled] = useState<AgendaVisual[]>([...FILTERS]);
+  const [enabled, setEnabled] = useState<FilterId[]>([...CATEGORIES]);
   const [onlyRelated, setOnlyRelated] = useState(true);
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
   const [dialog, setDialog] = useState<DialogState | null>(null);
@@ -109,11 +120,12 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
   const visibleEvents = useMemo(() => {
     const byProfile = filterByProfile(events, profile, onlyRelated, hiddenIds);
     return byProfile.filter((event) => {
-      const cats = categoriesOf(event);
-      const known = cats.filter((c) => FILTERS.includes(c));
-      // 没有任何已知类别 → 兜底显示，绝不静默丢弃
-      if (known.length === 0) return true;
-      return known.some((c) => enabled.includes(c));
+      const cat = event.category;
+      // 还没分类的 → 兜底显示，绝不静默丢弃
+      if (!cat) return true;
+      // 别的学院：分类里一律不出现，只有「全部」模式才放出来
+      if (cat === "other") return !onlyRelated;
+      return enabled.includes(cat);
     });
   }, [events, profile, onlyRelated, hiddenIds, enabled]);
 
@@ -151,7 +163,7 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
     setSelected(addDays(selected, delta * 1));
   }
 
-  function toggleFilter(id: AgendaVisual) {
+  function toggleFilter(id: FilterId) {
     setEnabled((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   }
 
@@ -263,15 +275,15 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
         </div>
 
         <div className="filter-group">
-          {FILTERS.map((id) => (
+          {CATEGORIES.map((id) => (
             <button
               key={id}
               type="button"
               aria-pressed={enabled.includes(id)}
               onClick={() => toggleFilter(id)}
             >
-              <i style={{ background: VISUAL_META[id].dark }} />
-              {VISUAL_META[id].name}
+              <i style={{ background: VISUAL_META[CATEGORY_VISUAL[id]].dark }} />
+              {VISUAL_META[CATEGORY_VISUAL[id]].name}
             </button>
           ))}
           <button

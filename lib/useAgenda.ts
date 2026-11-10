@@ -23,6 +23,7 @@ import type { LocalTimetable } from "@/lib/local-store";
 import type { SzUser } from "@/lib/szu-types";
 import { sameAffiliation, sameGrade } from "@/lib/visibility";
 import { RELATED_THRESHOLD, scoreEvent } from "@/lib/relevance.mjs";
+import { categoryOf, collegeNamesIn, isSchoolWide } from "@/lib/categorize.mjs";
 import { buildAgenda, dateKey } from "@/lib/agenda";
 import type { AgendaEvent } from "@/lib/agenda";
 
@@ -268,8 +269,21 @@ export function filterByProfile(
   };
 
   const scored = events.map((item) => {
+    // 分类只看来源与标题：课表→课程；本机待办/签到→作业；
+    // 公共通知按标题里有没有学院名判校园 / 个人 / 别的学院
+    const colleges = collegeNamesIn(item.title);
+    const viewerCollege = profile?.college || "";
+    const category = categoryOf({
+      source: item.source,
+      rawKind: item.rawKind,
+      scope: item.scope,
+      hasCollege: colleges.length > 0,
+      schoolWide: isSchoolWide(item.title),
+      isMine: Boolean(viewerCollege) && colleges.some((c) => sameAffiliation(c, viewerCollege)),
+    });
+
     if (!item.scope || item.scope === "personal") {
-      return { ...item, score: 100, reasons: ["仅自己"] };
+      return { ...item, category, score: 100, reasons: ["仅自己"] };
     }
     const result = scoreEvent(
       {
@@ -293,7 +307,7 @@ export function filterByProfile(
       },
       viewer
     );
-    return { ...item, score: result.score, reasons: result.reasons };
+    return { ...item, category, score: result.score, reasons: result.reasons };
   });
 
   return scored.filter((item) => {

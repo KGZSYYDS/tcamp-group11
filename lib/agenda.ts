@@ -44,6 +44,12 @@ export interface AgendaEvent {
   score?: number;
   /** 打分依据，用于 tooltip 解释为什么排在前面 */
   reasons?: string[];
+  /**
+   * 筛选分类，由 lib/categorize.mjs 判定：
+   * course=课表 / homework=本机待办与签到 / campus=全校通知 / personal=本学院通知
+   * other=别的学院的通知（不进任何分类，仅「全部」可见）
+   */
+  category?: "course" | "homework" | "campus" | "personal" | "other";
 }
 
 const KIND_LABEL: Record<EventKind, string> = {
@@ -182,33 +188,6 @@ export function mapCheckin(checkin: Checkin): AgendaEvent | null {
     scope: "personal",
     course: checkin.course,
   };
-}
-
-/**
- * 一条事件归属的「筛选类别」集合。
- *
- * 之所以需要多类别归属，是因为筛选按钮和视觉配色用的是同一套 visual，
- * 但 visual 是互斥单值（一条事件只能有一个），而真实的分类意图是交叉的：
- *  - DDL 是「作业截止」，但它也属于某门「课程」
- *  - 课程签到记录在 checkins 表，visual=personal，但它也属于「课程」
- *  - 一场课程考试 kind=exam → visual=notice，但它也属于「课程」
- *
- * 如果用单值 visual 过滤，关掉「课程」按钮只会把 visual=course 的事件隐藏——
- * 但实际上从没有任何事件的 visual 等于 "course"，于是「课程」按钮形同虚设；
- * 更糟的是只开「课程」关掉其它三个时，所有课程相关的 DDL / 签到 / 课程考试
- * 都会被另外三个按钮挡掉，用户看到空白。
- *
- * 改成「任一所属类别启用即显示」后，关掉单一类别不会让跨类别事件消失，
- * 只有同时关掉它归属的全部类别才会隐藏——这才是「不遗漏」的语义。
- */
-export function categoriesOf(event: AgendaEvent): AgendaVisual[] {
-  const set = new Set<AgendaVisual>([event.visual]);
-  // 带课程名的事件（课程考试、课程活动、课程签到等）也归入「课程」
-  if (event.course) set.add("course");
-  // DDL 是课程作业，签到是课程签到，二者本质上都属于「课程」
-  if (event.rawKind === "ddl" || event.rawKind === "checkin") set.add("course");
-  if (event.rawKind === "deadline") set.add(event.scope === "personal" ? "personal" : "notice");
-  return Array.from(set);
 }
 
 /** 单条事件占用的分钟数，供时间轴与课表估算块高 */
