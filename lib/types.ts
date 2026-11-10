@@ -49,6 +49,33 @@ export interface CheckinInput {
 /** 通用日历事件：考试 / 体测 / 活动 / 会议 / 截止 / 其他 */
 export type EventKind = "exam" | "pe" | "activity" | "meeting" | "deadline" | "other";
 
+/**
+ * 可见范围。取代旧的 scope 字符串，语义见 lib/visibility.ts。
+ * public  = 未登录游客可见（开放日、嘉年华、校园新闻）
+ * campus  = 校内可见（需登录，但不限学院）
+ * college / major / grade / class / course = 需匹配 audience 中的对应归属
+ * private = 仅创建者本人
+ */
+export type Visibility =
+  | "public"
+  | "campus"
+  | "college"
+  | "major"
+  | "grade"
+  | "class"
+  | "course"
+  | "private";
+
+/** 可见范围的受众描述；为空对象表示不限定（实际含义由 visibility 决定） */
+export interface Audience {
+  college?: string;
+  major?: string;
+  grade?: number | string;
+  class?: string;
+  level?: string;
+  course?: string;
+}
+
 export interface CalEvent {
   id: string;
   kind: EventKind;
@@ -71,6 +98,18 @@ export interface CalEvent {
   ownerId?: string;
   source: string;
   createdAt: string;
+  /**
+   * 以下字段为新的可见性/结构化模型的预留（留桩）。
+   * 数据库尚未加列时恒为 undefined，由 pickVisibility 回退到 legacy scope。
+   */
+  visibility?: Visibility;
+  audience?: Audience;
+  /** 行动截止时间（报名 / 提交 / 缴费），与 startAt 语义不同 */
+  actionDeadline?: string;
+  /** 抽取置信度 0~1 */
+  confidence?: number;
+  /** 关键字段在原文中的证据片段，用于回原文核对 */
+  evidence?: string[];
 }
 
 export interface CalEventInput {

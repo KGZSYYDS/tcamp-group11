@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": ".tmp-check",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "target": "ES2020",
+    "incremental": false,
+    "declaration": false,
+    "sourceMap": false,
+    "plugins": []
+  },
+  "include": ["scripts/**/*.ts"],
+  "exclude": ["node_modules", ".next", "components", "app"]
+}
