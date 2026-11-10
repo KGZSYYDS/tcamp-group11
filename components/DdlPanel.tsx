@@ -173,7 +173,14 @@ export default function DdlPanel() {
     return order.filter((s) => present.has(s));
   }, [all]);
 
-  /** 已截止但没勾掉的单独放下面，不然一进页面先看到一堆过期的。 */
+  /**
+   * 已截止但没勾掉的单独放下面，不然一进页面先看到一堆过期的。
+   *
+   * 这里刻意**不**引入 lib/relevance 的分数，也不做「只看与我相关」的筛选：
+   * 截止是待办而不是推荐，漏掉一条的代价远大于多看一眼。
+   * 全校性的选课、退课、缴费截止跟个人画像并不"相关"，但漏了最要命。
+   * 如果确实嫌吵，应该在入库时把 scope/college 标对，而不是在展示层藏起来。
+   */
   const { upcoming, expired, doneList, stats } = useMemo(() => {
     const pendingAll = all.filter((d) => d.status === "pending");
     const up = pendingAll.filter((d) => new Date(d.dueAt).getTime() >= now);
