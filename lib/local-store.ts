@@ -338,6 +338,7 @@ export function removeCheckin(id: string): boolean {
 export interface MyEvent {
   id: string;
   kind: string;
+  source?: "paste-import";
   title: string;
   startAt: string;
   endAt?: string;

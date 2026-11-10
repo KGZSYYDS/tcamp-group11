@@ -97,6 +97,7 @@ export interface CalEvent {
   /** 创建者，仅用于 UI 判断是否显示删除按钮，不作安全边界 */
   ownerId?: string;
   source: string;
+  sourceUrl?: string;
   createdAt: string;
   /**
    * 以下字段为新的可见性/结构化模型的预留（留桩）。

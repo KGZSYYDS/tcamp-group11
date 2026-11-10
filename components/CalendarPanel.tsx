@@ -15,7 +15,7 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import type { AgendaEvent, AgendaVisual } from "@/lib/agenda";
-import { categoriesOf, dateKey } from "@/lib/agenda";
+import { dateKey } from "@/lib/agenda";
 import { filterByProfile, groupByDate, useAgenda } from "@/lib/useAgenda";
 import type { SzUser } from "@/lib/szu-types";
 import ClockFace, { EventRow, VISUAL_META } from "./calendar/ClockFace";
@@ -39,9 +39,13 @@ const VIEWS: { id: ViewId; label: string; icon: typeof Clock3 }[] = [
   { id: "timeline", label: "时间轴", icon: AlignVerticalJustifyStart },
 ];
 
-const FILTERS: AgendaVisual[] = ["course", "ddl", "notice", "personal"];
+const FILTERS: AgendaVisual[] = ["course", "ddl", "notice", "imported", "personal"];
 
 const HIDDEN_KEY = "szu-cal-hidden";
+
+function personalEventKey(event: AgendaEvent) {
+  return event.preferenceKey || event.id;
+}
 
 function addDays(date: Date, n: number) {
   const result = new Date(date);
@@ -74,6 +78,8 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
   const [enabled, setEnabled] = useState<AgendaVisual[]>([...FILTERS]);
   const [onlyRelated, setOnlyRelated] = useState(true);
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
+  const personalStorageKey = `szu-cal-personal:v1:${session?.studentId || "guest"}`;
+  const [personal, setPersonal] = useState<{ storageKey: string; ids: string[] }>({ storageKey: "", ids: [] });
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [toast, setToast] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -93,29 +99,40 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
   }, []);
 
   useEffect(() => {
+    const reload = () => {
+      const stored = readJson<unknown>(personalStorageKey, []);
+      const ids = Array.isArray(stored) ? stored.filter((id): id is string => typeof id === "string") : [];
+      setPersonal({ storageKey: personalStorageKey, ids });
+    };
+    function sync(event: StorageEvent) {
+      if (event.key === personalStorageKey || event.key === null) reload();
+    }
+    reload();
+    window.addEventListener("storage", sync);
+    return () => window.removeEventListener("storage", sync);
+  }, [personalStorageKey]);
+
+  useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(""), 3000);
     return () => clearTimeout(timer);
   }, [toast]);
 
-  /**
-   * 类别开关 + 相关性 + 已隐藏，三层过滤后交给视图。
-   *
-   * 类别过滤用「多类别归属」：一条事件可同时属于多个类别（如 DDL 既属于「作业」
-   * 也属于「课程」），只要它归属的任一类别在 enabled 中就显示。
-   * 这样关掉单一类别不会让跨类别事件被误隐藏，避免「只开课程却看到空白」的问题。
-   * 未知 visual（未来可能新增的类别）兜底显示，不会被 enabled 静默挡掉。
-   */
-  const visibleEvents = useMemo(() => {
-    const byProfile = filterByProfile(events, profile, onlyRelated, hiddenIds);
-    return byProfile.filter((event) => {
-      const cats = categoriesOf(event);
-      const known = cats.filter((c) => FILTERS.includes(c));
-      // 没有任何已知类别 → 兜底显示，绝不静默丢弃
-      if (known.length === 0) return true;
-      return known.some((c) => enabled.includes(c));
-    });
-  }, [events, profile, onlyRelated, hiddenIds, enabled]);
+  const displayEvents = useMemo(() => {
+    if (personal.storageKey !== personalStorageKey || !personal.ids.length) return events;
+    const moved = new Set(personal.ids);
+    return events.map((event): AgendaEvent =>
+      event.visual === "notice" && moved.has(personalEventKey(event))
+        ? { ...event, visual: "personal", movedFromCampus: true }
+        : event
+    );
+  }, [events, personal, personalStorageKey]);
+
+  const visibleEvents = useMemo(() =>
+    filterByProfile(displayEvents, profile, onlyRelated, hiddenIds)
+      .filter((event) => enabled.includes(event.visual)),
+  [displayEvents, profile, onlyRelated, hiddenIds, enabled]);
+  const hasImported = events.some((event) => event.visual === "imported");
 
   const byDay = useMemo(() => groupByDate(visibleEvents), [visibleEvents]);
   const eventsFor = useMemo(
@@ -153,6 +170,22 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
 
   function toggleFilter(id: AgendaVisual) {
     setEnabled((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
+  function togglePersonal(event: AgendaEvent) {
+    if (event.visual !== "notice" && !event.movedFromCampus) return;
+    const key = personalEventKey(event);
+    const current = personal.storageKey === personalStorageKey ? personal.ids : [];
+    const restore = event.movedFromCampus;
+    const ids = restore ? current.filter((id) => id !== key) : Array.from(new Set([...current, key]));
+    try {
+      localStorage.setItem(personalStorageKey, JSON.stringify(ids));
+    } catch {
+      setToast("暂时无法保存分类，请检查浏览器存储");
+      return;
+    }
+    setPersonal({ storageKey: personalStorageKey, ids });
+    setToast(restore ? "已恢复到校园" : "已移入个人");
   }
 
   function hideEvent(event: AgendaEvent) {
@@ -263,7 +296,7 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
         </div>
 
         <div className="filter-group">
-          {FILTERS.map((id) => (
+          {FILTERS.filter((id) => id !== "imported" || hasImported).map((id) => (
             <button
               key={id}
               type="button"
@@ -387,6 +420,7 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
             <MonthView
               selected={selected}
               eventsFor={eventsFor}
+              onTogglePersonal={togglePersonal}
               onDate={setSelected}
               onEvent={(event) => open({ kind: "detail", event })}
               onOpenDay={() => switchView("clock")}

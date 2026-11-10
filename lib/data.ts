@@ -93,6 +93,7 @@ async function fetchEvents(): Promise<CalEvent[]> {
       grade: r.grade ?? undefined,
       ownerId: r.owner_id ?? undefined,
       source: r.source,
+      sourceUrl: r.source_url ?? undefined,
       createdAt: r.created_at,
     }));
   } finally {

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { minuteOf } from "@/lib/orbit";
-import { Coffee } from "lucide-react";
+import { Coffee, Minus, Plus } from "lucide-react";
 import type { AgendaEvent } from "@/lib/agenda";
 import { dateKey } from "@/lib/agenda";
 import { EventRow, VISUAL_META } from "./ClockFace";
@@ -26,7 +26,12 @@ export function MonthView({
   onDate,
   onEvent,
   onOpenDay,
-}: ViewProps & { onDate: (date: Date) => void; onOpenDay: () => void }) {
+  onTogglePersonal,
+}: ViewProps & {
+  onDate: (date: Date) => void;
+  onOpenDay: () => void;
+  onTogglePersonal: (event: AgendaEvent) => void;
+}) {
   const first = new Date(selected.getFullYear(), selected.getMonth(), 1);
   const begin = addDays(first, -((first.getDay() + 6) % 7));
   const todayKey = dateKey(new Date());
@@ -120,9 +125,27 @@ export function MonthView({
               <p>点右上角「新建日程」，记下一件想做的事。</p>
             </div>
           ) : null}
-          {selectedEvents.map((event) => (
-            <EventRow key={event.id} event={event} onClick={() => onEvent(event)} />
-          ))}
+          {selectedEvents.map((event) => {
+            if (event.visual !== "notice" && !event.movedFromCampus) {
+              return <EventRow key={event.id} event={event} onClick={() => onEvent(event)} />;
+            }
+            const Icon = event.movedFromCampus ? Minus : Plus;
+            const label = event.movedFromCampus ? "恢复到校园" : "移入个人";
+            return (
+              <div key={event.id} className="month-classify-row">
+                <EventRow event={event} onClick={() => onEvent(event)} />
+                <button
+                  type="button"
+                  className="month-classify-action"
+                  aria-label={`${label}：${event.title}`}
+                  title={label}
+                  onClick={() => onTogglePersonal(event)}
+                >
+                  <Icon size={16} aria-hidden="true" />
+                </button>
+              </div>
+            );
+          })}
         </div>
       </div>
     </section>

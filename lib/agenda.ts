@@ -1,8 +1,7 @@
 import type { CalEvent, Checkin, Ddl, EventKind } from "./types";
 import type { MyEvent, PersonalItem, TimetableSession } from "./local-store";
 
-/** 原型视图里的四类日程 */
-export type AgendaType = "course" | "notice" | "personal";
+export type AgendaType = "course" | "notice" | "personal" | "imported";
 
 /** 视觉类别：三类日程 + 作业截止（与课程同色系但需要单独标识） */
 export type AgendaVisual = AgendaType | "ddl";
@@ -25,6 +24,10 @@ export interface AgendaEvent {
   type: AgendaType;
   /** 配色与标签用的视觉类别，ddl 单独标识 */
   visual: AgendaVisual;
+  /** 仅供当前浏览器的显示偏好使用。原分类来自数据映射。 */
+  movedFromCampus?: true;
+  /** 公共通知重入库后数据库 ID 可能变化，优先使用来源标识。 */
+  preferenceKey?: string;
   /** 来源标记，例如「签到」「作业」「考试」 */
   source?: string;
   note?: string;
@@ -50,12 +53,6 @@ const KIND_LABEL: Record<EventKind, string> = {
   deadline: "截止",
   other: "日程",
 };
-
-/** 后端事件类型 → 原型三类配色。考试/活动归入校园事项，体测与其它归入个人安排 */
-function toAgendaType(kind: EventKind): AgendaType {
-  if (kind === "exam" || kind === "activity") return "notice";
-  return "personal";
-}
 
 export function dateKey(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
@@ -94,7 +91,7 @@ export function mapCalEvent(event: CalEvent, ctx: MapContext = {}): AgendaEvent 
   if (!start) return null;
   const end = event.kind === "deadline" ? start : resolveEnd(start, parseDate(event.endAt), event.allDay);
   const ownerMatch = Boolean(ctx.currentUserId && event.ownerId === ctx.currentUserId);
-  const type: AgendaType = event.scope === "personal" ? "personal" : toAgendaType(event.kind);
+  const type: AgendaType = event.scope === "personal" ? "personal" : "notice";
 
   return {
     id: `event-${event.id}`,
@@ -104,7 +101,8 @@ export function mapCalEvent(event: CalEvent, ctx: MapContext = {}): AgendaEvent 
     end: event.allDay ? "23:59" : timeKey(end),
     location: event.location || event.course || "",
     type,
-    visual: event.kind === "deadline" ? "ddl" : type,
+    visual: type,
+    preferenceKey: event.sourceUrl ? `cloud:${event.sourceUrl}|${event.kind}|${event.startAt}` : undefined,
     source: event.scope === "personal" ? undefined : KIND_LABEL[event.kind],
     note: event.note,
     link: event.link,
@@ -126,6 +124,7 @@ export function mapCalEvent(event: CalEvent, ctx: MapContext = {}): AgendaEvent 
 export function mapDdl(ddl: Ddl): AgendaEvent | null {
   const due = parseDate(ddl.dueAt);
   if (!due) return null;
+  const type: AgendaType = ddl.source === "lms-sync" ? "course" : ddl.source === "manual" ? "personal" : "imported";
 
   // 截止在 00:00–00:29 时，往前推 30 分钟会落到前一天。
   // 此时日期应跟着开始时间走，否则会出现「日期 11-10、时间 23:30」这种自相矛盾的数据
@@ -144,8 +143,8 @@ export function mapDdl(ddl: Ddl): AgendaEvent | null {
     start: timeKey(start),
     end: crossesDay ? "23:59" : timeKey(due),
     location: ddl.course || "",
-    type: "course",
-    visual: "ddl",
+    type,
+    visual: type === "course" ? "ddl" : type,
     source: "作业截止",
     note: ddl.note,
     link: ddl.url,
@@ -157,7 +156,7 @@ export function mapDdl(ddl: Ddl): AgendaEvent | null {
   };
 }
 
-/** checkins 表 → 视图事件。签到是「已经发生」的事实，落在个人类别 */
+/** 签到记录关联课程。 */
 export function mapCheckin(checkin: Checkin): AgendaEvent | null {
   const at = parseDate(checkin.occurredAt);
   if (!at) return null;
@@ -169,8 +168,8 @@ export function mapCheckin(checkin: Checkin): AgendaEvent | null {
     start: timeKey(at),
     end: timeKey(addMinutes(at, 15)),
     location: checkin.teacher ? `${checkin.teacher} 老师` : "",
-    type: "personal",
-    visual: "personal",
+    type: "course",
+    visual: "course",
     source: "签到",
     note: checkin.note,
     rawKind: "checkin",
@@ -178,33 +177,6 @@ export function mapCheckin(checkin: Checkin): AgendaEvent | null {
     scope: "personal",
     course: checkin.course,
   };
-}
-
-/**
- * 一条事件归属的「筛选类别」集合。
- *
- * 之所以需要多类别归属，是因为筛选按钮和视觉配色用的是同一套 visual，
- * 但 visual 是互斥单值（一条事件只能有一个），而真实的分类意图是交叉的：
- *  - DDL 是「作业截止」，但它也属于某门「课程」
- *  - 课程签到记录在 checkins 表，visual=personal，但它也属于「课程」
- *  - 一场课程考试 kind=exam → visual=notice，但它也属于「课程」
- *
- * 如果用单值 visual 过滤，关掉「课程」按钮只会把 visual=course 的事件隐藏——
- * 但实际上从没有任何事件的 visual 等于 "course"，于是「课程」按钮形同虚设；
- * 更糟的是只开「课程」关掉其它三个时，所有课程相关的 DDL / 签到 / 课程考试
- * 都会被另外三个按钮挡掉，用户看到空白。
- *
- * 改成「任一所属类别启用即显示」后，关掉单一类别不会让跨类别事件消失，
- * 只有同时关掉它归属的全部类别才会隐藏——这才是「不遗漏」的语义。
- */
-export function categoriesOf(event: AgendaEvent): AgendaVisual[] {
-  const set = new Set<AgendaVisual>([event.visual]);
-  // 带课程名的事件（课程考试、课程活动、课程签到等）也归入「课程」
-  if (event.course) set.add("course");
-  // DDL 是课程作业，签到是课程签到，二者本质上都属于「课程」
-  if (event.rawKind === "ddl" || event.rawKind === "checkin") set.add("course");
-  if (event.rawKind === "deadline") set.add(event.scope === "personal" ? "personal" : "notice");
-  return Array.from(set);
 }
 
 /** 单条事件占用的分钟数，供时间轴与课表估算块高 */
@@ -249,6 +221,8 @@ export function mapMyEvent(ev: MyEvent): AgendaEvent | null {
   const start = parseDate(ev.startAt);
   if (!start) return null;
   const isDeadline = ev.kind === "deadline";
+  // 兼容尚未保存 source 的旧导入记录。
+  const imported = ev.source === "paste-import" || /^(粘贴导入 · 仅自己$|来自群[：聊])/.test(ev.note || "");
   const end = isDeadline ? start : resolveEnd(start, parseDate(ev.endAt), ev.allDay);
   return {
     id: `my-${ev.id}`,
@@ -257,9 +231,9 @@ export function mapMyEvent(ev: MyEvent): AgendaEvent | null {
     start: ev.allDay ? "00:00" : timeKey(start),
     end: ev.allDay ? "23:59" : timeKey(end),
     location: ev.location || ev.course || "",
-    type: "personal",
-    visual: isDeadline ? "ddl" : "personal",
-    source: "个人",
+    type: imported ? "imported" : "personal",
+    visual: imported ? "imported" : "personal",
+    source: imported ? "粘贴导入" : "自定义",
     note: ev.note,
     link: ev.link,
     allDay: ev.allDay,
@@ -282,8 +256,8 @@ function mapGroupItem(item: PersonalItem): AgendaEvent | null {
     start: allDay ? "00:00" : timeKey(start),
     end: allDay ? "23:59" : timeKey(item.kind === "deadline" ? start : resolveEnd(start, parseDate(item.endAt), false)),
     location: item.location || item.course || "",
-    type: "personal",
-    visual: item.kind === "deadline" ? "ddl" : "personal",
+    type: "imported",
+    visual: "imported",
     source: "群聊",
     note: item.note,
     allDay,

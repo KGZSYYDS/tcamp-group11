@@ -130,6 +130,7 @@ export default function PasteImporter() {
         // 群聊里排出来的会议只进本机：正文里有别人的话、有私人安排，没有理由上云
         addMyEvent({
           kind: m.type === "deadline" ? "deadline" : "meeting",
+          source: "paste-import",
           title: m.title,
           startAt: new Date(`${m.date}T${startTime}:00`).toISOString(),
           endAt: m.endTime ? new Date(`${m.date}T${m.endTime}:00`).toISOString() : undefined,
@@ -288,6 +289,7 @@ export default function PasteImporter() {
       if ((eventForm.scope as string) === "personal") {
         addMyEvent({
           kind: payload.kind,
+          source: "paste-import",
           title: payload.title,
           startAt: payload.startAt,
           endAt: payload.endAt,

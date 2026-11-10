@@ -13,6 +13,7 @@ export const VISUAL_META: Record<AgendaVisual, { name: string; color: string; da
   course: { name: "课程", color: "var(--course)", dark: "var(--course-ink)", bg: "var(--course-bg)" },
   ddl: { name: "作业", color: "var(--ddl)", dark: "var(--ddl-ink)", bg: "var(--ddl-bg)" },
   notice: { name: "校园", color: "var(--notice)", dark: "var(--notice-ink)", bg: "var(--notice-bg)" },
+  imported: { name: "导入", color: "var(--imported)", dark: "var(--imported-ink)", bg: "var(--imported-bg)" },
   personal: { name: "个人", color: "var(--personal)", dark: "var(--personal-ink)", bg: "var(--personal-bg)" },
 };
 const round = (v: number) => Math.round(v * 100) / 100;
@@ -72,7 +73,7 @@ export default function ClockFace({ events, selected, onSelect, instant = false 
     </div>
     <div className="orbit-caption" aria-live="polite">{hovered ? <><strong>{agendaTimeLabel(hovered)}</strong><span>{hovered.title}</span></> : <><strong>{tracks.length} 项定时安排</strong><span>色带表示时长 · 截止用短标记</span></>}</div>
     {pages > 1 && <div className="orbit-pagination"><button aria-label="上一组轨道" disabled={!activePage} onClick={() => setPage(activePage-1)}><ChevronLeft size={15}/></button><span>轨道组 {activePage+1} / {pages} · 本组 {visible.length} 项</span><button aria-label="下一组轨道" disabled={activePage === pages-1} onClick={() => setPage(activePage+1)}><ChevronRight size={15}/></button></div>}
-    <div className="clock-legend">{Object.entries(VISUAL_META).map(([key, meta]) => <span key={key}><i style={{ background: meta.color }}/>{meta.name}</span>)}</div>
+    <div className="clock-legend">{Object.entries(VISUAL_META).filter(([key]) => key !== "imported" || events.some((event) => event.visual === key)).map(([key, meta]) => <span key={key}><i style={{ background: meta.color }}/>{meta.name}</span>)}</div>
     {allDay.length > 0 && <details className="all-day-tray"><summary>全天事项 <b>{allDay.length}</b><span>展开查看</span></summary><div>{allDay.map(e => <button key={e.id} onClick={() => onSelect(e)}>{e.title}<span>↗</span></button>)}</div></details>}
   </section>;
 }
