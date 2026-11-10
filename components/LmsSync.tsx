@@ -13,8 +13,9 @@ import { importDdls } from "@/lib/local-store";
  * 现在：在「DDL」页登录一次统一认证，服务端直连畅课的 /api/todos 把作业
  * 拉回来，写进本机 localStorage。密码用完即弃，缓存的只有畅课的 cookie。
  *
- * 只有跑在 localhost 时才能用：登录要在「你自己的机器」上完成，否则密码和
- * 会话会落到部署服务器上，那是别人的机器。
+ * 会话按浏览器分桶（data/users/<owner>/lms.json），所以公网部署也能用：
+ * 每个人拿到的是自己那份，不会看到别人的作业。密码仍然会经过部署方的服务器
+ * （服务端要替你去登畅课），这一点在表单里写明了。
  */
 
 interface Props {
@@ -44,10 +45,6 @@ export default function LmsSync({ onSynced }: Props) {
   const [error, setError] = useState("");
   const [result, setResult] = useState<SyncResult | null>(null);
 
-  const isLocalHost =
-    typeof window !== "undefined" &&
-    /^(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)$/.test(window.location.hostname);
-
   const refreshStatus = useCallback(async () => {
     try {
       const r = await fetch("/api/lms/status", { cache: "no-store" });
@@ -61,8 +58,8 @@ export default function LmsSync({ onSynced }: Props) {
   }, []);
 
   useEffect(() => {
-    if (isLocalHost) void refreshStatus();
-  }, [isLocalHost, refreshStatus]);
+    void refreshStatus();
+  }, [refreshStatus]);
 
   /** 拉一次作业并写进本机 */
   const sync = useCallback(async () => {
@@ -105,16 +102,16 @@ export default function LmsSync({ onSynced }: Props) {
    * 会话还有效时，进页面自动同步一次。
    *
    * 之前必须手点「同步」，用户会以为没拉到（KG 就抱怨过"看不到畅课 DDL"）。
-   * 自动跑的条件很窄：localhost + 已登录 + 本次挂载没跑过。
+   * 自动跑的条件很窄：已登录 + 本次挂载没跑过。
    * 401 时不弹表单（保持"不主动索要密码"的口径），只把状态标成未连接。
    */
   const autoTried = useRef(false);
   useEffect(() => {
-    if (!isLocalHost || !status?.loggedIn) return;
+    if (!status?.loggedIn) return;
     if (autoTried.current) return;
     autoTried.current = true;
     void sync();
-  }, [isLocalHost, status?.loggedIn, sync]);
+  }, [status?.loggedIn, sync]);
 
   /** 登录成功后直接同步一次，少点一次按钮 */
   async function login(e: React.FormEvent) {
@@ -156,20 +153,6 @@ export default function LmsSync({ onSynced }: Props) {
     setMsg("");
     setError("");
     setBusy(false);
-  }
-
-  // 线上环境不显示登录表单：密码不该经过别人的服务器
-  if (!isLocalHost) {
-    return (
-      <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-        <p className="text-sm font-medium text-gray-700">畅课作业同步</p>
-        <p className="mt-1 text-xs leading-relaxed text-gray-500">
-          这个功能要登统一认证，只在网页跑在<b>你自己电脑</b>上（localhost）时开放，
-          否则密码会经过部署方的服务器。在本地运行 <code className="rounded bg-gray-100 px-1">npm run dev</code>{" "}
-          打开即可用；否则用「+ 添加 DDL」手动记。
-        </p>
-      </div>
-    );
   }
 
   const connected = Boolean(status?.loggedIn);

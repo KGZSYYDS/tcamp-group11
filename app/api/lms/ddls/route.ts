@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { fetchTodos, loadSession } from "@/lib/szu-lms";
-import { guardLocalOnly } from "@/lib/local-only";
+import { ownerKey } from "@/lib/sessions/owner";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -13,11 +13,8 @@ export const runtime = "nodejs";
  * 服务端不落库 —— 作业属于本机数据，写完就丢。
  */
 export async function GET() {
-  // 畅课会话是服务端单文件缓存的，公网多人共用会串号
-  const denied = guardLocalOnly("畅课同步");
-  if (denied) return denied;
-
-  const jar = loadSession();
+  // 只读这台浏览器自己的畅课会话
+  const jar = loadSession(ownerKey());
   if (!jar) {
     return NextResponse.json({ error: "还没登录畅课", needsLogin: true }, { status: 401 });
   }

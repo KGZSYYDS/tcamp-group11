@@ -13,24 +13,21 @@ import {
   jwkwAlive,
 } from "@/lib/szu/portal";
 import { SESSION_COOKIE, loadEhallJar, readSession } from "@/lib/szu/session";
-import { guardLocalOnly } from "@/lib/local-only";
+import { ownerKey } from "@/lib/sessions/owner";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST() {
-  // 这个接口读的是服务端共享的 CAS cookie jar，公网上会取到别人的课表
-  const denied = guardLocalOnly("课表重新同步");
-  if (denied) return denied;
-
   if (!readSession(cookies().get(SESSION_COOKIE)?.value)) {
     return NextResponse.json({ ok: false, message: "请先登录", code: "UNAUTH" }, { status: 401 });
   }
 
-  const jar = loadEhallJar();
+  // 只读这台浏览器自己的那份 jar；别人的桶在别的目录里，取不到
+  const jar = loadEhallJar(ownerKey());
   if (!jar) {
     return NextResponse.json(
-      { ok: false, message: "本机没有会话缓存，请重新登录一次", code: "RELOGIN" },
+      { ok: false, message: "没有会话缓存，请重新登录一次", code: "RELOGIN" },
       { status: 401 }
     );
   }

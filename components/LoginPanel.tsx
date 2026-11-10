@@ -132,8 +132,9 @@ export default function LoginPanel({ onLoggedIn }: Props) {
       </form>
 
       <p className="mt-3 text-[11px] leading-relaxed text-gray-400">
-        密码只在本机服务端用于向学校换一次登录票据，不写文件、不进云端数据库。
-        登录后本机保留 7 天免登录；课表存在这台设备的浏览器里。
+        密码只在本次请求里用于向学校换一次登录票据，不写文件、不进云端数据库。
+        服务端只保存学校发的会话 cookie，且<b>按浏览器分开存放</b>，别人拿不到你这份。
+        登录后这台设备 7 天免登录；课表存在浏览器的本地存储里。
       </p>
       <p className="mt-2 text-[11px] leading-relaxed text-gray-400">
         若提示「需要图形验证码」：先用浏览器打开 authserver.szu.edu.cn 手动登录一次再回来。

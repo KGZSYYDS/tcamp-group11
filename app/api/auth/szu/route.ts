@@ -17,7 +17,7 @@ import {
   fetchProfile,
 } from "@/lib/szu/portal";
 import { SESSION_COOKIE, SESSION_DAYS, createSession, saveEhallJar, saveJwkwJar } from "@/lib/szu/session";
-import { guardLocalOnly } from "@/lib/local-only";
+import { ownerKey } from "@/lib/sessions/owner";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,12 +28,14 @@ function fail(status: number, message: string, code?: string) {
 
 export async function POST(req: Request) {
   /**
-   * 统一认证会话会落到 data/.ehall-session.json 这个**服务端单文件**里。
-   * 单机跑的时候它是「我这台电脑的缓存」，公网上就变成所有人共用一份 —— B 能借
-   * A 的会话去教务系统取课表。所以公网模式直接关掉，改用手填画像 / 导入课表文件。
+   * 公网也能登录：CAS cookie 按「这台浏览器」分目录存（data/users/<owner>/），
+   * 不再是一个全局文件。以前关掉登录是因为所有人共用一份会话，B 会读到 A 的课表；
+   * 分桶之后这个前提不成立了。
+   *
+   * 仍然要守住的一条：密码只在本次请求里存在，不写盘、不进日志，
+   * 服务端长期保存的只有学校发的 cookie（0600，自然过期）。
    */
-  const denied = guardLocalOnly("统一认证登录");
-  if (denied) return denied;
+  const owner = ownerKey();
 
   let input: { studentId?: unknown; password?: unknown };
   try {
@@ -81,8 +83,8 @@ export async function POST(req: Request) {
       warning = e instanceof Error ? e.message : "课表读取失败";
     }
 
-    saveEhallJar(jar);
-    if (jwkwOk) saveJwkwJar(jar);
+    saveEhallJar(owner, jar);
+    if (jwkwOk) saveJwkwJar(owner, jar);
 
     const { token, payload } = createSession(profile);
     const res = NextResponse.json({

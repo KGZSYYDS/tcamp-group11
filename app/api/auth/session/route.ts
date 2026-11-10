@@ -6,7 +6,8 @@
  */
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { SESSION_COOKIE, readSession } from "@/lib/szu/session";
+import { SESSION_COOKIE, clearOwnerSessions, readSession } from "@/lib/szu/session";
+import { peekOwnerKey } from "@/lib/sessions/owner";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,6 +30,16 @@ export async function GET() {
 }
 
 export async function DELETE() {
+  /**
+   * 退出要连服务端的 cookie 桶一起清掉。
+   *
+   * 只清浏览器 token 的话，学校系统那份 cookie 还留在磁盘上：共用设备时下一个人
+   * 虽然看不到你的名字，但「重新同步课表」仍会用你的会话去取数据。既然会话是按
+   * 浏览器分桶的，退出就该把桶端掉。
+   */
+  const owner = peekOwnerKey();
+  if (owner) clearOwnerSessions(owner);
+
   const res = NextResponse.json({ ok: true });
   res.cookies.set(SESSION_COOKIE, "", { httpOnly: true, path: "/", maxAge: 0 });
   return res;

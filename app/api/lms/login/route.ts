@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { clearSession, loginLms } from "@/lib/szu-lms";
-import { guardLocalOnly } from "@/lib/local-only";
+import { ownerKey } from "@/lib/sessions/owner";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -9,15 +9,12 @@ export const runtime = "nodejs";
  * 用统一身份认证登录一次畅课。
  *
  * 密码只在这个请求里存在：不写盘、不写日志、不回显。成功后缓存的是
- * lms 域的 cookie（data/.lms-session.json），失效了才需要再登一次。
+ * lms 域的 cookie（data/users/<owner>/lms.json，0600），失效了才需要再登一次。
  *
- * 为什么不走浏览器扩展：那要求用户装扩展、还要专门去畅课页面逛一圈。
- * 服务端这条路，用户在日历里输一次账号密码就完事，换电脑也一样。
+ * 会话按浏览器分桶，所以公网部署也能用——每个人拿到的是自己的那份。
  */
 export async function POST(request: Request) {
-  // 密码走服务端、会话落 data/ 单文件：只在本机运行时成立
-  const denied = guardLocalOnly("畅课登录");
-  if (denied) return denied;
+  const owner = ownerKey();
 
   let body: { username?: unknown; password?: unknown } = {};
   try {
@@ -33,7 +30,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const r = await loginLms(username, password);
+    const r = await loginLms(username, password, owner);
     if (!r.ok) {
       return NextResponse.json({ error: r.message || "登录失败" }, { status: 401 });
     }
@@ -47,9 +44,6 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE() {
-  const denied = guardLocalOnly("畅课登录");
-  if (denied) return denied;
-
-  clearSession();
+  clearSession(ownerKey());
   return NextResponse.json({ ok: true });
 }

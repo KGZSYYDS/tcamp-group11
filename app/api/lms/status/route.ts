@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { loadSession, sessionAgeDays } from "@/lib/szu-lms";
-import { IS_PUBLIC_DEPLOY } from "@/lib/runtime-mode";
+import { peekOwnerKey } from "@/lib/sessions/owner";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -11,16 +11,17 @@ export const runtime = "nodejs";
  * 只回「有没有缓存的会话、多久前登的」，不回 cookie 内容。
  * 前端据此决定显示「一键同步」还是「先登录一次」。
  *
- * 公网模式下回 200 + disabled，而不是 403：前端拿到 403 只会当成「没登录」，
- * 于是仍会把密码框摆出来，用户填完才被告知不能登录。这里直接让它别渲染。
+ * 会话按浏览器分桶，所以这里查的是「你这台浏览器」的状态，不是全局的。
  */
 export async function GET() {
-  if (IS_PUBLIC_DEPLOY) {
-    return NextResponse.json({ loggedIn: false, ageDays: null, disabled: true });
+  const owner = peekOwnerKey();
+  if (!owner) {
+    // 从没登录过：不给他种 cookie，直接说没有
+    return NextResponse.json({ loggedIn: false, ageDays: null });
   }
 
-  const jar = loadSession();
-  const age = sessionAgeDays();
+  const jar = loadSession(owner);
+  const age = sessionAgeDays(owner);
   return NextResponse.json({
     loggedIn: Boolean(jar),
     ageDays: age === null ? null : Math.round(age * 10) / 10,

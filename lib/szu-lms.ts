@@ -13,7 +13,10 @@
  * authserver 会拿不到回跳，或者回跳后 identity 认不出这次认证。
  *
  * 密码只在这一次登录里存在：本模块不接受「保存密码」，也不写盘。
- * 缓存的是 cookie（data/.lms-session.json，0600），失效才需要再登录一次。
+ * 缓存的是 cookie（data/users/<owner>/lms.json，0600），失效才需要再登录一次。
+ *
+ * 会话按归属键分目录存，因为公网上有很多人共用同一个服务端进程：存在一个文件里
+ * 就是 A 登录完 B 直接看到 A 的作业。
  */
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -24,7 +27,17 @@ const UA =
 
 const LMS = "https://lms.szu.edu.cn";
 const DATA_DIR = path.resolve("data");
+const USERS_DIR = path.join(DATA_DIR, "users");
+
+/** 兼容旧引用的路径常量（不再作为实际存储位置） */
 export const LMS_SESSION_FILE = path.join(DATA_DIR, ".lms-session.json");
+
+function lmsFile(owner: string) {
+  if (!/^[a-f0-9]{32}$/.test(owner)) throw new Error("归属键格式不对");
+  const dir = path.join(USERS_DIR, owner);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  return path.join(dir, "lms.json");
+}
 
 // ---------- 密码加密（与 authserver 前端 encrypt.js 等价） ----------
 
@@ -128,7 +141,11 @@ export interface LoginResult {
  * 走完三跳登录，成功后把 lms 的 cookie 写进缓存。
  * 密码用完即弃，函数返回后不再有任何引用。
  */
-export async function loginLms(username: string, password: string): Promise<LoginResult> {
+export async function loginLms(
+  username: string,
+  password: string,
+  owner: string
+): Promise<LoginResult> {
   const jar = new Jar();
 
   // 1) 三跳：lms → identity cas → identity broker → authserver 登录页
@@ -223,7 +240,7 @@ export async function loginLms(username: string, password: string): Promise<Logi
     };
   }
 
-  saveSession(jar.dumpLms());
+  saveSession(owner, jar.dumpLms());
 
   // 学号从 /api/user 读；这个接口对部分账号返回 403，那就退回用登录时的学号
   let studentId: string | null = null;
@@ -242,19 +259,19 @@ export async function loginLms(username: string, password: string): Promise<Logi
   return { ok: true, studentId };
 }
 
-export function saveSession(dump: [string, string[]][]) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(LMS_SESSION_FILE, JSON.stringify(dump), "utf-8");
+export function saveSession(owner: string, dump: [string, string[]][]) {
+  const file = lmsFile(owner);
+  fs.writeFileSync(file, JSON.stringify(dump), "utf-8");
   try {
-    fs.chmodSync(LMS_SESSION_FILE, 0o600);
+    fs.chmodSync(file, 0o600);
   } catch {
     // Windows 上 chmod 基本无效，忽略
   }
 }
 
-export function loadSession(): Jar | null {
+export function loadSession(owner: string): Jar | null {
   try {
-    const dump = JSON.parse(fs.readFileSync(LMS_SESSION_FILE, "utf-8")) as [string, string[]][];
+    const dump = JSON.parse(fs.readFileSync(lmsFile(owner), "utf-8")) as [string, string[]][];
     if (!Array.isArray(dump) || !dump.length) return null;
     return Jar.fromLmsDump(dump);
   } catch {
@@ -262,17 +279,17 @@ export function loadSession(): Jar | null {
   }
 }
 
-export function clearSession() {
+export function clearSession(owner: string) {
   try {
-    fs.unlinkSync(LMS_SESSION_FILE);
+    fs.unlinkSync(lmsFile(owner));
   } catch {
     // 本来就没有
   }
 }
 
-export function sessionAgeDays(): number | null {
+export function sessionAgeDays(owner: string): number | null {
   try {
-    return (Date.now() - fs.statSync(LMS_SESSION_FILE).mtimeMs) / 86400_000;
+    return (Date.now() - fs.statSync(lmsFile(owner)).mtimeMs) / 86400_000;
   } catch {
     return null;
   }
