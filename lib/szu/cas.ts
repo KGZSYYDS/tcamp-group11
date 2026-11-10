@@ -168,6 +168,13 @@ export class CookieJar {
     return next;
   }
 
+  /** 手动放入一个 cookie（用于接收用户在浏览器里登录后交回的 TGT） */
+  set(host: string, name: string, value: string) {
+    const d = host.toLowerCase();
+    if (!this.store.has(d)) this.store.set(d, new Map());
+    this.store.get(d)!.set(name, value);
+  }
+
   /** 某个域下现在有哪些 cookie 名（诊断用，不含值） */
   namesFor(host: string): string[] {
     const jar = this.store.get(host);
@@ -249,11 +256,49 @@ async function follow(jar: CookieJar, start: string, max = 12, trace?: Trace) {
 }
 
 export class CasError extends Error {
-  code: "BAD_CREDENTIALS" | "NEED_CAPTCHA" | "RATE_LIMITED" | "UNKNOWN";
+  code: "BAD_CREDENTIALS" | "NEED_CAPTCHA" | "RATE_LIMITED" | "REAUTH" | "UNKNOWN";
   constructor(code: CasError["code"], message: string) {
     super(message);
     this.code = code;
     this.name = "CasError";
+  }
+}
+
+/**
+ * 打开二次认证页，判断它要求的是哪种验证。
+ * 只取「标题 + 表单字段 + 可见文案关键词」，不落 HTML、不外传。
+ */
+async function describeReAuth(jar: CookieJar, url: string, trace?: Trace) {
+  try {
+    const r = await requestWith(jar, url, {}, trace);
+    const html = await r.text();
+
+    const title = pick(html, /<title>([^<]*)<\/title>/i) || "";
+    const fields = Array.from(
+      new Set(
+        Array.from(html.matchAll(/<(?:input|select|textarea)[^>]*name="([^"]+)"/gi)).map((m) => m[1])
+      )
+    );
+    const text = html
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    const hints: string[] = [];
+    if (/短信|动态码|验证码/.test(text)) hints.push("需要短信验证码");
+    if (/微信|企业微信/.test(text)) hints.push("可用微信验证");
+    if (/人脸|刷脸/.test(text)) hints.push("需要人脸识别");
+    if (/信任|记住.*设备/.test(text)) hints.push("有「信任此设备」选项");
+
+    traceAdd(trace, `二次认证页 ${r.status} title=${title || "-"} fields=[${fields.join(",")}]`);
+    traceAdd(trace, `二次认证提示：${hints.join(" / ") || "未识别"}；正文 ${text.slice(0, 120)}`);
+
+    return { what: hints[0] || "", fields, title, status: r.status };
+  } catch (e) {
+    traceAdd(trace, `二次认证页打不开 ${e instanceof Error ? e.message : String(e)}`);
+    return { what: "", fields: [] as string[], title: "", status: 0 };
   }
 }
 
@@ -347,6 +392,25 @@ export async function casLogin(
   const ticketUrl = new URL(location, CAS).toString();
   const ticket = new URL(ticketUrl).searchParams.get("ticket");
   traceAdd(trace, `拿到 ticket=${ticket ? "是" : "否"}`);
+
+  /**
+   * 密码对了、CASTGC 也签发了，但 CAS 把浏览器送到了 reAuthCheck（二次认证）。
+   *
+   * 深大 CAS 在「登录地点/环境变化」时会插这一层：此时不发 ticket，
+   * 必须先完成人机确认（短信、微信、或点确认）才放行。
+   * 机器账号无法完成，所以不能当成普通失败 —— 要明确告诉用户去浏览器过一次。
+   *
+   * 注意判据要落在「跳去的是 reAuth」，而不是「有没有 ticket」：
+   * 有些版本会先给 reAuth 再给 ticket，只看 ticket 会误判。
+   */
+  if (/reAuthCheck|reAuthLoginView/i.test(ticketUrl)) {
+    const detail = await describeReAuth(jar, ticketUrl, trace);
+    throw new CasError(
+      "REAUTH",
+      `学校判定这次登录是「新地点 / 异常环境」，要求二次认证${detail.what ? `（${detail.what}）` : ""}。` +
+        `请用浏览器打开 authserver.szu.edu.cn 登录一次并完成验证，再回来重试`
+    );
+  }
 
   const finalUrl = await follow(jar, ticketUrl, 12, trace);
   traceAdd(trace, `最终落地 ${shortUrl(finalUrl)}`);

@@ -78,6 +78,26 @@ export async function GET() {
   // ③ 教务：只判断可达性
   const jwkw = await probe(jar, `${JWKW}/jwapp/sys/homeapp/index.do`);
 
+  /**
+   * ④ 出口 IP 归属地。
+   *
+   * 不是为了统计，是为了解释一个具体现象：统一认证对「境外 / 机房 IP」会插入
+   * reAuthCheck 二次认证，而二次认证必须人工完成，服务端永远过不去。
+   * 沙箱若在境外，这里会直接显示出来，省得再猜。
+   */
+  let egress: Record<string, unknown> = { ok: false };
+  try {
+    const r = await fetch("https://myip.ipip.net", {
+      headers: { "User-Agent": "curl/8" },
+      cache: "no-store",
+      signal: AbortSignal.timeout(6000),
+    });
+    const text = (await r.text()).trim();
+    egress = { ok: r.ok, text: text.slice(0, 200) };
+  } catch (e) {
+    egress = { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+
   return NextResponse.json(
     {
       ok: true,
@@ -111,6 +131,7 @@ export async function GET() {
         ms: jwkw.ms,
         ...(jwkw.error ? { error: jwkw.error } : {}),
       },
+      egress,
     },
     { headers: { "Cache-Control": "no-store" } }
   );

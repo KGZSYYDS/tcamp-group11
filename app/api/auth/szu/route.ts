@@ -160,7 +160,12 @@ export async function POST(req: Request) {
   } catch (e) {
     // 任何一步失败都带上轨迹：登录页结构、ticket、每一跳跳转、cookie 名都在里面
     if (e instanceof CasError) {
-      const status = e.code === "BAD_CREDENTIALS" ? 401 : e.code === "RATE_LIMITED" ? 429 : 502;
+      const status =
+        e.code === "BAD_CREDENTIALS"
+          ? 401
+          : e.code === "RATE_LIMITED" || e.code === "NEED_CAPTCHA"
+            ? 429
+            : 502;
       return fail(status, e.message, e.code, trace.length ? { ...debug, trace } : undefined);
     }
     const message = e instanceof Error ? e.message : "登录失败";
