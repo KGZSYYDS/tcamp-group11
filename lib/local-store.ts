@@ -243,11 +243,22 @@ export function importDdls(inputs: DdlInput[]) {
       continue;
     }
     const dup = list.find(
-      (d) => d.course === input.course.trim() && d.title === input.title.trim()
+      (d) =>
+        // url 里带 course_id + material_id，是最稳的主键。
+        // 只按 course+title 匹配时，畅课拿不到课程名会退化成「未匹配课程」，
+        // 下次拿到真名就变成两条同一作业。
+        (input.url && d.url && d.url.trim() === input.url.trim()) ||
+        (d.course === input.course.trim() && d.title === input.title.trim())
     );
     if (dup) {
       if (new Date(dup.dueAt).getTime() === due.getTime()) {
-        skipped++;
+        // 时间没变，但课程名可能从占位值变成了真名，跟着更新而不是新增
+        if (dup.course !== input.course.trim()) {
+          dup.course = input.course.trim();
+          updated++;
+        } else {
+          skipped++;
+        }
       } else {
         dup.dueAt = due.toISOString();
         if (input.url) dup.url = input.url.trim();

@@ -200,7 +200,11 @@ export default function DdlPanel() {
     tag === "all" ? list : list.filter((d) => d.tag === tag);
 
   const visible = byTag(bySource(filter === "pending" ? upcoming : filter === "done" ? doneList : all));
-  const expiredVisible = filter === "done" ? [] : byTag(bySource(expired));
+  /**
+   * 「已截止」单独分组只在「待交」视图下有意义：
+   * filter==="all" 时 visible 取的就是 all，已经包含这些条目，再收一遍会重复渲染。
+   */
+  const expiredVisible = filter === "pending" ? byTag(bySource(expired)) : [];
 
   async function toggle(item: UnifiedDeadline) {
     if (item.editable) {

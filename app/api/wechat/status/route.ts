@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { weflowStatus } from "@/lib/wechat-local";
+import { weflowStatusNow } from "@/lib/wechat-local";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -12,7 +12,11 @@ export const runtime = "nodejs";
  * 只留手动导入。不做「假装可用」的降级。
  *
  * 不返回 exe 路径和完整 wxid：前端用不到，少暴露一点是一点。
+ *
+ * 注意：这里**不能**同步探测。探测要依次跑 `--version`（超时 20s）和
+ * `db test`（超时 60s），同步执行会把 Node 主线程占满，整站页面和其它接口
+ * 一起停住。所以首次请求先回 stage:"probing"，真探测在后台跑，前端轮询取结果。
  */
 export async function GET() {
-  return NextResponse.json(weflowStatus());
+  return NextResponse.json(weflowStatusNow());
 }

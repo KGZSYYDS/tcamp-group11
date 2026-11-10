@@ -23,10 +23,49 @@ function assertAffected(data: any[] | null) {
 // ---------- 日历事件 ----------
 
 /**
- * 只取公共事件。personal 行一律在服务端过滤掉，不下发到浏览器——
- * 个人数据本来就不该进这张表，这里是不让历史脏数据继续外泄的第二道闸。
+ * 公共事件的进程内缓存。
+ *
+ * 日历、提醒条、截止日期面板过去各自 `listEvents()`，页面上有 2–3 份全量数据，
+ * 且提醒条每 60 秒再拉一遍 636 行。这里做一层共享缓存 + 失效通知：
+ * 同一时刻只有一个请求在飞，其余调用方等它；写完（新建/删除）主动失效。
+ *
+ * TTL 取 5 分钟：通知不是秒级数据，没必要每分钟全量重拉。
+ * 需要最新数据时传 `force`（面板刷新按钮走这条路）。
  */
-export async function listEvents(): Promise<CalEvent[]> {
+const EVENTS_TTL = 5 * 60_000;
+
+let eventsCache: CalEvent[] | null = null;
+let eventsCachedAt = 0;
+let eventsInflight: Promise<CalEvent[]> | null = null;
+const eventsListeners = new Set<(rows: CalEvent[]) => void>();
+
+/** 订阅公共事件更新；返回取消订阅函数 */
+export function subscribeEvents(fn: (rows: CalEvent[]) => void): () => void {
+  eventsListeners.add(fn);
+  return () => {
+    eventsListeners.delete(fn);
+  };
+}
+
+/** 让缓存失效，下次读取会重新请求 */
+export function invalidateEvents() {
+  eventsCache = null;
+  eventsCachedAt = 0;
+}
+
+function publishEvents(rows: CalEvent[]) {
+  eventsCache = rows;
+  eventsCachedAt = Date.now();
+  for (const fn of eventsListeners) {
+    try {
+      fn(rows);
+    } catch {
+      /* 单个订阅方报错不影响其它人 */
+    }
+  }
+}
+
+async function fetchEvents(): Promise<CalEvent[]> {
   const timeout = new AbortController();
   const timer = setTimeout(() => timeout.abort(), 12_000);
   try {
@@ -61,6 +100,31 @@ export async function listEvents(): Promise<CalEvent[]> {
   }
 }
 
+/**
+ * 只取公共事件。personal 行一律在服务端过滤掉，不下发到浏览器——
+ * 个人数据本来就不该进这张表，这里是不让历史脏数据继续外泄的第二道闸。
+ *
+ * 多次调用共享同一份缓存与同一个在途请求，见上面的 EVENTS_TTL。
+ */
+export async function listEvents(options?: { force?: boolean }): Promise<CalEvent[]> {
+  const force = Boolean(options?.force);
+  if (!force && eventsCache && Date.now() - eventsCachedAt < EVENTS_TTL) {
+    return eventsCache;
+  }
+  if (eventsInflight) return eventsInflight;
+
+  eventsInflight = fetchEvents()
+    .then((rows) => {
+      publishEvents(rows);
+      return rows;
+    })
+    .finally(() => {
+      eventsInflight = null;
+    });
+
+  return eventsInflight;
+}
+
 export async function createEvent(input: CalEventInput) {
   const { data, error } = await cloud.database
     .from("events")
@@ -83,6 +147,8 @@ export async function createEvent(input: CalEventInput) {
     .select();
   if (error) throw new Error(error.message);
   assertAffected(data);
+  // 新建成功后立刻让缓存失效，下一次读会拿到包含新行的列表
+  invalidateEvents();
 }
 
 export async function deleteEvent(id: string) {
@@ -93,6 +159,7 @@ export async function deleteEvent(id: string) {
     .select();
   if (error) throw new Error(error.message);
   assertAffected(data);
+  invalidateEvents();
 }
 
 /**

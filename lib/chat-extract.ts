@@ -257,9 +257,17 @@ function resolveDate(text: string, anchor: Date): Date | null {
   if (m) {
     const target = WEEKDAY[m[2]];
     const d = new Date(anchor);
-    const cur = d.getDay();
-    let delta = (target - cur + 7) % 7;
-    if (m[1] === "下") delta = delta === 0 ? 7 : delta + 7;
+    // 以周一为一周起点换算偏移：正数 = 本周内还没到，负数 = 本周内已过去。
+    // 原先用 (target - cur + 7) % 7 恒非负，导致周三说「本周一」被算成下周一。
+    const curIdx = (d.getDay() + 6) % 7;
+    const targetIdx = (target + 6) % 7;
+    let delta = targetIdx - curIdx;
+    if (m[1] === "下") {
+      delta += 7;
+    } else if (m[1] !== "本" && m[1] !== "这" && delta < 0) {
+      // 只说「周一」时按最近的那个将来理解，往回推一次到下周
+      delta += 7;
+    }
     d.setDate(d.getDate() + delta);
     return d;
   }

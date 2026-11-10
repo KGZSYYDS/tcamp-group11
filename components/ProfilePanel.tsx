@@ -57,42 +57,32 @@ export default function ProfilePanel({ session, onSignedIn, onSignOut }: Props) 
     const t = loadTimetable();
     setLocal(t);
     setPersonal(loadPersonal());
+    const fromTimetable = t?.profile;
 
-    // 登录时同步下来的课表自带学籍档案，比云端画像新，优先用它
-    const p = t?.profile;
-    if (p) {
-      const merged = {
-        college: p.college || "",
-        major: p.major || "",
-        grade: p.grade || "",
-        level: p.level || "undergraduate",
-        courses: t?.courses || [],
-      };
-      touched.current = true;
-      setCollege(merged.college);
-      setMajor(merged.major);
-      setGrade(merged.grade);
-      setLevel(merged.level);
-      setCoursesText(merged.courses.join("\n"));
-      setLoaded(true);
-      // 顺手把画像回写云端：日历的学院/年级过滤读的是这张表
-      saveProfile(merged).catch(() => {});
-      return;
-    }
-
+    // 画像优先级：云端 profiles（可能是用户手改过的）> 课表副本（只是学籍接口的原样快照）。
+    // 以前是课表副本无条件覆盖表单并自动回写云端，用户改过的学院/专业下次进来就被冲掉了。
+    // 也不在这里自动写云端了：要落库请点「保存画像」。
     getProfile()
       .then((p) => {
-        if (p && !touched.current) {
-          setCollege(p.college || "");
-          setMajor(p.major || "");
-          setGrade(p.grade || "");
-          setLevel(p.level || "undergraduate");
-          setCoursesText(p.courses.join("\n"));
-        }
+        if (touched.current) return;
+        setCollege(p?.college || fromTimetable?.college || "");
+        setMajor(p?.major || fromTimetable?.major || "");
+        setGrade(p?.grade || fromTimetable?.grade || "");
+        setLevel(p?.level || fromTimetable?.level || "undergraduate");
+        // 课表里的课程是本学期实到课程，比旧画像里的列表更可信
+        const list = t?.courses?.length ? t.courses : p?.courses || [];
+        setCoursesText(list.join("\n"));
         setLoaded(true);
       })
       .catch((e) => {
         // 游客态读云端画像可能被权限挡住，这不是用户要处理的错误 —— 手填就行
+        if (!touched.current && fromTimetable) {
+          setCollege(fromTimetable.college || "");
+          setMajor(fromTimetable.major || "");
+          setGrade(fromTimetable.grade || "");
+          setLevel(fromTimetable.level || "undergraduate");
+          setCoursesText((t?.courses || []).join("\n"));
+        }
         if (session) setError(e.message);
         setLoaded(true);
       });

@@ -16,7 +16,10 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawn, spawnSync } from "node:child_process";
+import { execFile, spawn, spawnSync } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 const DATA_DIR = path.resolve("data");
 const CONFIG_FILE = path.join(DATA_DIR, ".weflow-config.json");
@@ -116,9 +119,49 @@ export function detectWeFlowCandidates(): { exe: string; from: string }[] {
   return found;
 }
 
+/**
+ * 进程级状态盒子。
+ *
+ * 挂在 globalThis 上而不是模块作用域里，是因为 dev 模式的 HMR 会重新求值模块，
+ * 模块级变量随之清空 —— 表现就是「探测完成 → 打开另一个页面 → 又回到检测中」，
+ * 每次重置都要重扫盘重新跑子进程。生产构建不会重载模块，但 dev 下这样最省事。
+ */
+const STATE_KEY = "__szu_weflow_state__";
+
+interface WeFlowState {
+  /** 上一次探测结论 */
+  value: WeFlowStatus | null;
+  at: number;
+  /** 在途探测，用于单飞 */
+  inflight: Promise<WeFlowStatus> | null;
+  /** exe 位置扫描结果 */
+  exe: { at: number; value: string | null } | null;
+}
+
+function state(): WeFlowState {
+  const g = globalThis as unknown as Record<string, WeFlowState | undefined>;
+  if (!g[STATE_KEY]) {
+    g[STATE_KEY] = { value: null, at: 0, inflight: null, exe: null };
+  }
+  return g[STATE_KEY] as WeFlowState;
+}
+
+/**
+ * exe 位置的进程级缓存。
+ *
+ * detectWeFlowCandidates() 要扫 C–H 盘根目录，实测约 2 秒。
+ * 之前每次 status / groups / scan 都重新扫一遍，全部卡在这上面。
+ * exe 不会频繁挪位置，缓存 60 秒；用户改配置后 invalidateStatus() 会清掉。
+ */
+const EXE_TTL = 60_000;
+
 export function findWeFlow(): string | null {
+  const st = state();
+  if (st.exe && Date.now() - st.exe.at < EXE_TTL) return st.exe.value;
   const all = detectWeFlowCandidates();
-  return all.length ? all[0].exe : null;
+  const value = all.length ? all[0].exe : null;
+  st.exe = { at: Date.now(), value };
+  return value;
 }
 
 function envFor(exe: string) {
@@ -146,6 +189,31 @@ function run(exe: string, args: string[], timeout = 120_000) {
     throw new Error(`WeFlow 返回 ${r.status}：${(stderr || stdout).slice(0, 200)}`);
   }
   return { stdout, stderr };
+}
+
+/**
+ * 异步版 run：给 HTTP 接口用。
+ *
+ * spawnSync 会阻塞 Node 唯一的主线程，探测 WeFlow 时最长要等 20s + 60s，
+ * 这期间**所有页面和接口全部停住**（连静态资源都发不出去）。
+ * execFile 是异步的，等子进程的时候事件循环还能处理别的请求。
+ */
+async function runAsync(exe: string, args: string[], timeout = 120_000) {
+  try {
+    const { stdout, stderr } = await execFileAsync(exe, args, {
+      encoding: "utf8",
+      maxBuffer: 256 * 1024 * 1024,
+      timeout,
+      windowsHide: true,
+      env: envFor(exe),
+    });
+    return { stdout: String(stdout || "").trim(), stderr: String(stderr || "").trim() };
+  } catch (e) {
+    const err = e as NodeJS.ErrnoException & { stderr?: string; stdout?: string; killed?: boolean };
+    const detail = String(err.stderr || err.stdout || err.message || "").trim().slice(0, 200);
+    if (err.killed) throw new Error(`WeFlow 超时（${Math.round(timeout / 1000)}s）：${args.join(" ")}`);
+    throw new Error(`WeFlow 返回 ${err.code ?? "错误"}：${detail}`);
+  }
 }
 
 // ---------- 微信数据目录探测 ----------
@@ -350,7 +418,7 @@ export interface WeFlowStatus {
   accountHint: string | null;
   error?: string;
   /** 诊断分步，前端据此显示「卡在第几步」 */
-  stage: "no-exe" | "no-data" | "no-key" | "ready";
+  stage: "no-exe" | "no-data" | "no-key" | "ready" | "probing";
   /** 找到的 exe 候选（给「是不是这个」用） */
   exePath: string | null;
   /** 微信数据目录探测结果，供引导用户确认 */
@@ -359,19 +427,27 @@ export interface WeFlowStatus {
   configured: boolean;
 }
 
-let cached: { at: number; value: WeFlowStatus } | null = null;
+interface ProbeResult {
+  version: string | null;
+  connected: boolean;
+  accountHint: string | null;
+}
 
-export function weflowStatus(force = false): WeFlowStatus {
-  if (!force && cached && Date.now() - cached.at < 20_000) return cached.value;
-
-  const exe = findWeFlow();
-  const dirs = detectWeChatDirs(exe);
+/**
+ * 把「找到了什么」组装成对外的状态。
+ * 同步探测与异步探测共用这一段，避免两条路径的判断规则漂移。
+ */
+function assembleStatus(
+  exe: string | null,
+  dirs: WeChatDirInfo[],
+  configured: boolean,
+  probe: ProbeResult | null,
+  failure?: string
+): WeFlowStatus {
   const hasActive = dirs.some((d) => d.active);
-  const configured = Boolean(readConfig().exePath);
 
-  let value: WeFlowStatus;
   if (!exe) {
-    value = {
+    return {
       available: false,
       connected: false,
       version: null,
@@ -382,50 +458,158 @@ export function weflowStatus(force = false): WeFlowStatus {
       configured,
       error: "这台机器上没找到 WeFlow",
     };
+  }
+
+  if (!probe) {
+    return {
+      available: true,
+      connected: false,
+      version: null,
+      accountHint: null,
+      stage: hasActive ? "no-key" : "no-data",
+      exePath: exe,
+      wechatDirs: dirs,
+      configured,
+      error: failure || "WeFlow 探测失败",
+    };
+  }
+
+  return {
+    available: true,
+    connected: probe.connected,
+    version: probe.version,
+    accountHint: probe.accountHint,
+    // 连不上时先看「有没有指向正确的目录」：目录都没找对，让用户去重登微信是白费
+    stage: probe.connected ? "ready" : hasActive ? "no-key" : "no-data",
+    exePath: exe,
+    wechatDirs: dirs,
+    configured,
+    error: probe.connected
+      ? undefined
+      : hasActive
+        ? "WeFlow 找到了，但打不开微信数据库（多半是密钥过期）"
+        : "WeFlow 找到了，但还没确定微信的聊天记录存在哪个文件夹",
+  };
+}
+
+const CACHE_TTL = 20_000;
+
+/** 解析 db test 的返回，两条路径共用 */
+function parseProbe(versionRaw: string, testRaw: string): ProbeResult {
+  const j = JSON.parse(testRaw);
+  const account: string = j?.data?.accountDir || "";
+  const tail = account.split(/[\\/]/).filter(Boolean).pop() || "";
+  return {
+    version: versionRaw.split("\n")[0].replace(/^weflow\s*/i, ""),
+    connected: Boolean(j?.data?.connected),
+    accountHint: tail ? tail.slice(-6) : null,
+  };
+}
+
+/** 同步探测（会阻塞主线程，只给命令行/需要就地拿结果的内部调用用） */
+export function weflowStatus(force = false): WeFlowStatus {
+  const st = state();
+  if (!force && st.value && Date.now() - st.at < CACHE_TTL) return st.value;
+  // force 表示「用户刚改过配置，重新来一遍」，exe 缓存也要跟着失效
+  if (force) st.exe = null;
+
+  const exe = findWeFlow();
+  const dirs = detectWeChatDirs(exe);
+  const configured = Boolean(readConfig().exePath);
+
+  let value: WeFlowStatus;
+  if (!exe) {
+    value = assembleStatus(null, dirs, configured, null);
   } else {
     try {
-      const ver = run(exe, ["--version"], 20_000).stdout.split("\n")[0];
-      const j = JSON.parse(run(exe, ["--json", "db", "test"], 60_000).stdout);
-      const account: string = j?.data?.accountDir || "";
-      const tail = account.split(/[\\/]/).filter(Boolean).pop() || "";
-      const connected = Boolean(j?.data?.connected);
-      value = {
-        available: true,
-        connected,
-        version: ver.replace(/^weflow\s*/i, ""),
-        accountHint: tail ? tail.slice(-6) : null,
-        // 连不上时先看「有没有指向正确的目录」：目录都没找对，让用户去重登微信是白费
-        stage: connected ? "ready" : hasActive ? "no-key" : "no-data",
-        exePath: exe,
-        wechatDirs: dirs,
-        configured,
-        error: connected
-          ? undefined
-          : hasActive
-            ? "WeFlow 找到了，但打不开微信数据库（多半是密钥过期）"
-            : "WeFlow 找到了，但还没确定微信的聊天记录存在哪个文件夹",
-      };
+      const probe = parseProbe(
+        run(exe, ["--version"], 20_000).stdout,
+        run(exe, ["--json", "db", "test"], 60_000).stdout
+      );
+      value = assembleStatus(exe, dirs, configured, probe);
     } catch (e) {
-      value = {
-        available: true,
-        connected: false,
-        version: null,
-        accountHint: null,
-        stage: hasActive ? "no-key" : "no-data",
-        exePath: exe,
-        wechatDirs: dirs,
-        configured,
-        error: e instanceof Error ? e.message : "WeFlow 探测失败",
-      };
+      value = assembleStatus(exe, dirs, configured, null, e instanceof Error ? e.message : "WeFlow 探测失败");
     }
   }
 
-  cached = { at: Date.now(), value };
+  st.value = value;
+  st.at = Date.now();
   return value;
 }
 
+/**
+ * 异步探测（不阻塞事件循环）。
+ * 结果同样写进缓存，同步与异步两条路径共享同一份 20s 缓存。
+ */
+export function probeWeFlowStatus(): Promise<WeFlowStatus> {
+  const st = state();
+  if (st.inflight) return st.inflight;
+
+  st.inflight = (async () => {
+    const exe = findWeFlow();
+    const dirs = detectWeChatDirs(exe);
+    const configured = Boolean(readConfig().exePath);
+
+    let value: WeFlowStatus;
+    if (!exe) {
+      value = assembleStatus(null, dirs, configured, null);
+    } else {
+      try {
+        const ver = await runAsync(exe, ["--version"], 20_000);
+        const test = await runAsync(exe, ["--json", "db", "test"], 60_000);
+        value = assembleStatus(exe, dirs, configured, parseProbe(ver.stdout, test.stdout));
+      } catch (e) {
+        value = assembleStatus(exe, dirs, configured, null, e instanceof Error ? e.message : "WeFlow 探测失败");
+      }
+    }
+
+    st.value = value;
+    st.at = Date.now();
+    return value;
+  })().finally(() => {
+    st.inflight = null;
+  });
+
+  return st.inflight;
+}
+
+/**
+ * HTTP 接口专用的「立刻返回」版本。
+ *
+ * 命中缓存直接给结果；否则在后台起一次探测，本次先回 probing，
+ * 让前端轮询——这样打开「我的」页面不会被 20s+60s 的子进程卡住。
+ */
+export function weflowStatusNow(): WeFlowStatus {
+  const st = state();
+  if (st.value && Date.now() - st.at < CACHE_TTL) return st.value;
+
+  // 已有探测在跑就等它；没有就起一个，本次不 await
+  if (!st.inflight) void probeWeFlowStatus().catch(() => {});
+
+  // 探到过就先给旧结论，别让界面从「就绪」退回「检测中」
+  if (st.value) return { ...st.value, stage: "probing" };
+
+  // 冷启动：连 findWeFlow() 都要扫盘（C–H 根目录，实测量级 ~2s），
+  // 一律放到后台，本次立即返回，前端轮询取结果。
+  return {
+    available: true,
+    connected: false,
+    version: null,
+    accountHint: null,
+    stage: "probing",
+    exePath: null,
+    wechatDirs: [],
+    configured: false,
+    error: "正在检测本机微信环境…",
+  };
+}
+
 export function invalidateStatus() {
-  cached = null;
+  const st = state();
+  st.value = null;
+  st.at = 0;
+  // exe 路径也可能刚被用户改过，一起失效
+  st.exe = null;
 }
 
 /**

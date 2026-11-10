@@ -28,7 +28,7 @@ export interface WeFlowStatus {
   version: string | null;
   accountHint: string | null;
   error?: string;
-  stage: "no-exe" | "no-data" | "no-key" | "ready";
+  stage: "no-exe" | "no-data" | "no-key" | "ready" | "probing";
   exePath: string | null;
   wechatDirs: WeChatDirInfo[];
   configured: boolean;
@@ -171,6 +171,19 @@ export default function WeChatSetup({ status, onRefresh }: Props) {
     if (stage === "no-exe" && candidates.length === 0 && !scanning) void scan();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage]);
+
+  // 服务端首次只回 probing，真探测在后台跑（见 /api/wechat/status）。
+  // 这时不要渲染「没装工具」的引导，否则会先闪一屏错误结论。
+  if (stage === "probing") {
+    return (
+      <div className="rounded-xl border border-gray-200 bg-white p-4">
+        <div className="flex items-center gap-2 text-xs text-gray-500">
+          <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-gray-200 border-t-indigo-500" />
+          正在检测本机微信环境（第一次需要几秒）…
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4">

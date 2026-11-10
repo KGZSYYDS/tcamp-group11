@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { createEvent } from "@/lib/data";
 import { addMyEvent, importDdls } from "@/lib/local-store";
 import {
@@ -39,8 +39,23 @@ export default function PasteImporter() {
   const [meetings, setMeetings] = useState<MeetingRow[]>([]);
   const [savingMeetings, setSavingMeetings] = useState(false);
 
-  async function parseChat() {
-    if (!image && !text.trim()) {
+  /**
+   * 最新的 text / image 镜像。
+   *
+   * 所有「setState 之后再解析」的地方都不能直接读 state：setState 是异步的，
+   * setTimeout 回调里执行的是上一次 render 的闭包，读到的还是旧值（空串），
+   * 于是「读取剪贴板」「Ctrl+V 自动解析」全都解析了个空内容。
+   * 这里每次 render 同步刷新 ref，定时器触发时读到的必然是最新值。
+   */
+  const textRef = useRef(text);
+  const imageRef = useRef(image);
+  textRef.current = text;
+  imageRef.current = image;
+
+  async function parseChat(input?: { image?: string; text?: string }) {
+    const srcImage = input?.image ?? imageRef.current;
+    const srcText = input?.text ?? textRef.current;
+    if (!srcImage && !srcText.trim()) {
       setError("粘贴群消息文字，或直接 Ctrl+V 粘贴聊天截图");
       return;
     }
@@ -48,9 +63,9 @@ export default function PasteImporter() {
     setError("");
     setResultMsg("");
     try {
-      const list = image
-        ? await parseChatImageToMeetings(image, groupName.trim() || null)
-        : await parseChatToMeetings(text, groupName.trim() || null);
+      const list = srcImage
+        ? await parseChatImageToMeetings(srcImage, groupName.trim() || null)
+        : await parseChatToMeetings(srcText, groupName.trim() || null);
       if (!list.length) {
         setError("这段内容里没找到带明确时间的会议。如果时间写在别处，把上下文一起复制进来。");
       } else {
@@ -73,7 +88,7 @@ export default function PasteImporter() {
           const url = await blobToDataUrl(blob);
           setImage(url);
           setText("");
-          setTimeout(() => parseChat(), 80);
+          await parseChat({ image: url, text: "" });
           return;
         }
       }
@@ -133,12 +148,13 @@ export default function PasteImporter() {
     setSavingMeetings(false);
   }
 
-  async function parse() {
+  async function parse(input?: { text?: string }) {
+    const srcText = input?.text ?? textRef.current;
     if (mode === "chat") {
-      await parseChat();
+      await parseChat({ text: srcText });
       return;
     }
-    if (!text.trim()) {
+    if (!srcText.trim()) {
       setError("先粘贴内容再解析");
       return;
     }
@@ -147,23 +163,23 @@ export default function PasteImporter() {
     setResultMsg("");
     try {
       if (mode === "event") {
-        const firstLine = text.trim().split("\n")[0].slice(0, 60) || "粘贴通知";
-        const form = await parseNoticeToEvent(firstLine, text);
+        const firstLine = srcText.trim().split("\n")[0].slice(0, 60) || "粘贴通知";
+        const form = await parseNoticeToEvent(firstLine, srcText);
         setEventForm(form);
       } else {
         // auto / ddl：先按作业列表解析；auto 模式下无结果则回退通知解析
         let list: Awaited<ReturnType<typeof parseDdlText>> = [];
         let ddlError: unknown = null;
         try {
-          list = await parseDdlText(text);
+          list = await parseDdlText(srcText);
         } catch (e) {
           ddlError = e;
         }
         if (list.length > 0) {
           setCandidates(list.map((c) => ({ ...c, selected: true })));
         } else if (mode === "auto") {
-          const firstLine = text.trim().split("\n")[0].slice(0, 60) || "粘贴通知";
-          const form = await parseNoticeToEvent(firstLine, text);
+          const firstLine = srcText.trim().split("\n")[0].slice(0, 60) || "粘贴通知";
+          const form = await parseNoticeToEvent(firstLine, srcText);
           setEventForm(form);
         } else if (ddlError) {
           throw ddlError;
@@ -182,15 +198,18 @@ export default function PasteImporter() {
     const file = Array.from(e.clipboardData?.files || []).find((f) => f.type.startsWith("image/"));
     if (file && mode === "chat") {
       e.preventDefault();
-      blobToDataUrl(file).then((url) => {
+      void blobToDataUrl(file).then((url) => {
         setImage(url);
-        setTimeout(() => parseChat(), 80);
+        setText("");
+        return parseChat({ image: url, text: "" });
       });
       return;
     }
+    // 粘贴的文本要等 React 把 value 写回 state 之后才读得到，
+    // 所以延迟一帧再走解析；parse 读的是 textRef，不是闭包里的旧 state
     setTimeout(() => {
-      parse();
-    }, 150);
+      void parse();
+    }, 120);
   }
 
   /** 一键读取剪贴板（浏览器授权后自动解析） */
@@ -202,7 +221,7 @@ export default function PasteImporter() {
         return;
       }
       setText(content);
-      setTimeout(() => parse(), 100);
+      await parse({ text: content });
     } catch {
       setError("浏览器未授权读取剪贴板，请用 Ctrl+V 粘贴（粘贴后会自动解析）");
     }
@@ -227,6 +246,8 @@ export default function PasteImporter() {
           title: c.title,
           dueAt: new Date(`${c.date}T${c.time || "23:59"}:00`).toISOString(),
           note: "粘贴导入",
+          // 不传就落成 lms-sync 默认值，徽章会误显示「畅课」
+          source: "paste-import",
         }))
       );
       setResultMsg(`导入完成：新增 ${r.added} 条、更新 ${r.updated} 条、跳过 ${r.skipped} 条（只存本机）`);
@@ -377,7 +398,7 @@ export default function PasteImporter() {
         />
         <div className="mt-3 flex items-center gap-3">
           <button
-            onClick={parse}
+            onClick={() => void parse()}
             disabled={parsing}
             className="rounded-lg bg-violet-600 px-5 py-2 text-sm font-medium text-white hover:bg-violet-700 disabled:opacity-50"
           >

@@ -137,16 +137,76 @@ export function getVisibilityFromAudience(audience: Audience): Visibility {
 
 const FULL_WIDTH_OFFSET = 0xfee0;
 
-/** 比较前统一：去空白、全角转半角、大小写不敏感 */
+/** 比较前统一：去空白/间隔符、全角转半角、大小写不敏感 */
+function normalizeText(v?: string | number | null): string {
+  return String(v ?? "")
+    .replace(/[\uff01-\uff5e]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - FULL_WIDTH_OFFSET))
+    .replace(/[\s\u3000·・\/\\\-—_]+/g, "")
+    .trim()
+    .toLowerCase();
+}
+
 export function sameText(a?: string | number | null, b?: string | number | null): boolean {
-  const norm = (v?: string | number | null) =>
-    String(v ?? "")
-      .replace(/[\uff01-\uff5e]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - FULL_WIDTH_OFFSET))
-      .replace(/\s+/g, "")
-      .trim()
-      .toLowerCase();
-  const left = norm(a);
-  return left.length > 0 && left === norm(b);
+  const left = normalizeText(a);
+  return left.length > 0 && left === normalizeText(b);
+}
+
+/** 去掉「深圳大学」前缀和「学院/学部/系」后缀，留下核心名 */
+function coreAffiliation(normalized: string): string {
+  return normalized.replace(/^(深圳大学|深大)/, "").replace(/(大学|学院|学部|学系|系|部)$/g, "");
+}
+
+/** short 的字符能否按顺序在 long 里依次找到（「计软」→「计算机与软件」） */
+function isSubsequence(short: string, long: string): boolean {
+  if (short.length < 2 || short.length > long.length) return false;
+  let i = 0;
+  for (const ch of long) {
+    if (ch === short[i]) i += 1;
+    if (i === short.length) return true;
+  }
+  return false;
+}
+
+/**
+ * 两个学院/专业名是否指同一个。
+ *
+ * 学籍接口给全称「计算机与软件学院」，而公文通里多半写简称「计软学院」「计算机学院」，
+ * 直接精确比较永远不成立 —— 于是「只看与我相关」形同虚设。
+ * 这里先剥掉前后缀，再做双向子序列包含，能覆盖绝大多数简写。
+ *
+ * 注意只用于学院/专业这类专有名词，不要拿它比学号、课程号。
+ */
+export function sameAffiliation(
+  a?: string | number | null,
+  b?: string | number | null
+): boolean {
+  const left = normalizeText(a);
+  const right = normalizeText(b);
+  if (!left || !right) return false;
+  if (left === right) return true;
+
+  const la = coreAffiliation(left);
+  const lb = coreAffiliation(right);
+  if (!la || !lb) return false;
+  if (la === lb) return true;
+  return isSubsequence(la, lb) || isSubsequence(lb, la);
+}
+
+/**
+ * 两个年级是否相同。
+ *
+ * 画像里是「2024 级」（带空格），通知里常写「2024级」「24级」，
+ * 所以优先抽四位年份比较；抽不到再退回文本比较。
+ */
+export function sameGrade(a?: string | number | null, b?: string | number | null): boolean {
+  const pick = (v?: string | number | null) => {
+    const m = /(?:19|20)\d{2}/.exec(String(v ?? ""));
+    return m ? m[0] : "";
+  };
+  const ya = pick(a);
+  const yb = pick(b);
+  if (ya && yb) return ya === yb;
+  return sameText(a, b);
 }
 
 /**
@@ -169,13 +229,13 @@ export function isVisible(subject: VisibilitySubject, viewer: Viewer): boolean {
       return sameText(ownerOf(subject), viewer.uid);
 
     case "college":
-      return sameText(audience.college, viewer.college);
+      return sameAffiliation(audience.college, viewer.college);
 
     case "major":
-      return sameText(audience.major, viewer.major);
+      return sameAffiliation(audience.major, viewer.major);
 
     case "grade":
-      return sameText(audience.grade, viewer.grade);
+      return sameGrade(audience.grade, viewer.grade);
 
     case "class":
       return sameText(audience.class, viewer.class);

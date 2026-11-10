@@ -21,6 +21,7 @@ import {
 } from "@/lib/local-store";
 import type { LocalTimetable } from "@/lib/local-store";
 import type { SzUser } from "@/lib/szu-types";
+import { sameAffiliation, sameGrade } from "@/lib/visibility";
 import { buildAgenda, dateKey } from "@/lib/agenda";
 import type { AgendaEvent } from "@/lib/agenda";
 
@@ -254,12 +255,12 @@ export function filterByProfile(
     if (!onlyRelated) return true;
     if (item.scope === "college") {
       if (!profile?.college) return true;
-      return !item.college || item.college.trim() === profile.college.trim();
+      // 学籍给全称、通知常写简称，必须走归一化 + 简称包含，精确比较永远不成立
+      return !item.college || sameAffiliation(item.college, profile.college);
     }
     if (item.scope === "grade") {
       if (!profile?.grade) return true;
-      const gradeKey = (value: string) => value.trim().replace(/^(\d{4})\s*级$/, "$1");
-      return !item.grade || gradeKey(item.grade) === gradeKey(profile.grade);
+      return !item.grade || sameGrade(item.grade, profile.grade);
     }
     if (item.scope === "undergraduate" || item.scope === "postgraduate" || item.scope === "doctoral") {
       if (!profile?.level) return true;

@@ -131,16 +131,13 @@ export default function WeChatImporter({ onImported }: Props) {
     }
   }, []);
 
-  const checkStatus = useCallback(async () => {
-    setStatusBusy(true);
-    setError("");
+  /** 读一次状态；拿不到时返回一个「没装」的兜底值，调用方决定怎么展示 */
+  const fetchStatus = useCallback(async (): Promise<Status> => {
     try {
       const r = await fetch("/api/wechat/status", { cache: "no-store" });
-      const j = (await r.json()) as Status;
-      setStatus(j);
-      if (j.available && j.connected) await loadGroups();
+      return (await r.json()) as Status;
     } catch {
-      setStatus({
+      return {
         available: false,
         connected: false,
         version: null,
@@ -150,11 +147,36 @@ export default function WeChatImporter({ onImported }: Props) {
         wechatDirs: [],
         configured: false,
         error: "连不上本地服务",
-      });
-    } finally {
-      setStatusBusy(false);
+      };
     }
-  }, [loadGroups]);
+  }, []);
+
+  const applyStatus = useCallback(
+    async (j: Status) => {
+      setStatus(j);
+      setStatusBusy(false);
+      if (j.available && j.connected) await loadGroups();
+    },
+    [loadGroups]
+  );
+
+  /**
+   * 服务端首次请求只回 stage:"probing"（真探测在后台跑，避免阻塞整站），
+   * 所以这里要轮询到有确定结果为止，最多约 18 秒。
+   */
+  const checkStatus = useCallback(async () => {
+    setStatusBusy(true);
+    setError("");
+    let j = await fetchStatus();
+    for (let i = 0; i < 12 && j.stage === "probing"; i++) {
+      await new Promise((r) => setTimeout(r, 1500));
+      j = await fetchStatus();
+    }
+    if (j.stage === "probing") {
+      j = { ...j, error: "本机微信环境检测超时，可以点「重新检测」再试" };
+    }
+    await applyStatus(j);
+  }, [fetchStatus, applyStatus]);
 
   useEffect(() => {
     void checkStatus();

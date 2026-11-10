@@ -67,14 +67,25 @@ export function buildDeadlines(
     url: d.url,
     note: d.note,
     status: d.status,
-    source: (d.source === "lms-sync" ? "lms-sync" : "manual") as DeadlineSource,
+    source: (d.source === "lms-sync"
+      ? "lms-sync"
+      : d.source === "paste-import"
+        ? "paste-import"
+        : "manual") as DeadlineSource,
     editable: true,
   }));
 
   const fromBoard: UnifiedDeadline[] = events
     .filter((e) => e.kind === "deadline")
     .map((e) => {
-      const key = `event:${e.id}`;
+      /**
+       * 公共截止的稳定键：标题 + 日期 + 学院。
+       *
+       * 以前用的是 `event:<自增 id>`，但 ingest 是「删了再插」，重新入库就换 id，
+       * 用户勾过的「已完成」全部对不上，第二天又变回待办。
+       * 这三个字段对同一条通知是稳定的，换了 id 也能命中。
+       */
+      const key = `event:${e.title}|${String(e.startAt).slice(0, 10)}|${e.college || ""}`;
       return {
         key,
         tag: categoryOf(e.note) || "全校",
