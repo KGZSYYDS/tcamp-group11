@@ -171,15 +171,26 @@
 - 页面实际渲染（已合并同事 `1c1f30a`）：11 月日历正常铺出云端事件标题，控制台无报错；
   连续切「日历 → 作业 → 签到」三次，`/events` 全程只有 **1** 次请求（P1-9 的缓存生效）。
 
-所以不是网络、不是权限、不是 RLS。最可能的原因是他本地**没装新依赖**：
-`hwb` 分支新增了 `motion`、`lucide-react`、`@fontsource-variable/manrope`，
-`node_modules` 里缺这三个，dev 会直接 `Module not found` 编译失败，页面空白 —— 看起来就像「拉不到数据」。
+所以不是网络、不是权限、不是 RLS。有两个可能原因，**按可能性排序**：
+
+**(1) 他跑的是 `main`，踩了 P0-2（最可能）**
+
+`main` 上 `app/api/wechat/status/route.ts` 仍是同步 `weflowStatus()`，
+`components/WeChatImporter.tsx:159` 进「导入」页就自动调它，内部 `spawnSync` 会阻塞
+整个 Node 事件循环，期间所有请求（含云端 `events`）全部排队 —— 看起来就是「拉不到云端」。
+详见 `docs/branch-divergence.md`。
+
+**(2) 他本地没装新依赖**
+
+`hwb` 新增了 `motion`、`lucide-react`、`@fontsource-variable/manrope`，
+缺这三个 dev 会 `Module not found` 编译失败，页面空白 —— 同样像「拉不到数据」。
 
 排查顺序：
-1. `npm install`（把这三个装上）；
-2. 删掉 `.next` 重新 `npm run dev`（旧产物里可能缓存了已删除的路由）；
-3. 浏览器控制台看有没有 `Failed to fetch` / CORS；
-4. 还不行就访问 `/api/auth/session` 看服务端是否正常。
+1. 先确认分支：`git branch --show-current`，是 `main` 就切 `hwb`（修复都在 `hwb`）；
+2. `npm install`（把三个新依赖装上）；
+3. 删掉 `.next` 重新 `npm run dev`（旧产物里可能缓存了已删除的路由）；
+4. 浏览器控制台看有没有 `Failed to fetch` / CORS；
+5. 还不行就访问 `/api/auth/session` 看服务端是否正常。
 
 > 注意：新版界面是纯客户端渲染，首屏 HTML 固定是「加载中…」。用 `curl` 判断
 > 「没有数据」会误判，必须在浏览器里等 2–3 秒看实际渲染结果。
