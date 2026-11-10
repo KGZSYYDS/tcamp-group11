@@ -8,6 +8,8 @@
   --notice:#df8053; --notice-ink:#a94e25; --notice-bg:#fff0e8;
   --imported:#7484a5; --imported-ink:#4e607f; --imported-bg:#edf1f8;
   --personal:#a285ce; --personal-ink:#7752aa; --personal-bg:#f3edfc;
+  /* 其他学院：刻意用中性灰，视觉上就比「个人」弱一档 */
+  --other:#9aa3b5; --other-ink:#5c6577; --other-bg:#f0f2f6;
 }
 html,body { margin:0; min-height:100%; background:var(--app-bg); color:var(--text); }
 body { font-family:'Manrope Variable','Microsoft YaHei UI','PingFang SC',sans-serif; }
@@ -49,6 +51,9 @@ input:focus,textarea:focus,select:focus { outline:2px solid var(--brand); outlin
 .calendar-app .filter-group>button:not(.icon-button) { padding:7px 10px; min-height:34px; font-size:11px; white-space:nowrap; flex-shrink:0; border-radius:9px; background:var(--surface); border:1px solid var(--edge); color:var(--text); }
 .calendar-app .filter-group i { flex-shrink:0; }
 .calendar-app .filter-group button[aria-pressed=false] { opacity:.55; }
+/* 每类条数：让「画像到底有没有生效」变成一眼能看出的数字，而不是玄学 */
+.calendar-app .filter-group .bucket-count { margin-left:5px; font-variant-numeric:tabular-nums; font-size:10px; color:var(--secondary); opacity:.85; }
+.calendar-app .filter-group button[aria-pressed=true] .bucket-count { color:inherit; opacity:.7; }
 .calendar-app .related-filter-count { color:var(--brand); font-variant-numeric:tabular-nums; }
 .calendar-app .campus-filter-trigger { display:inline-flex; min-height:34px; border:1px solid var(--edge); border-radius:9px; background:var(--surface); }
 .calendar-app .campus-filter-trigger button { display:flex; align-items:center; justify-content:center; gap:5px; padding:0 7px; white-space:nowrap; font-size:11px; }

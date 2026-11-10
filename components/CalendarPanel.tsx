@@ -14,11 +14,11 @@ import {
   Search,
   SlidersHorizontal,
 } from "lucide-react";
-import type { AgendaEvent, AgendaVisual } from "@/lib/agenda";
+import type { AgendaEvent } from "@/lib/agenda";
 import { dateKey } from "@/lib/agenda";
 import { scoreAgenda, isRelatedEvent, groupByDate, useAgenda } from "@/lib/useAgenda";
 import type { SzUser } from "@/lib/szu-types";
-import ClockFace, { EventRow, VISUAL_META } from "./calendar/ClockFace";
+import ClockFace, { EventRow } from "./calendar/ClockFace";
 import { MonthView } from "./calendar/MonthWeekView";
 import TimelineView from "./calendar/TimelineView";
 import EventDialog from "./calendar/EventDialog";
@@ -40,7 +40,51 @@ const VIEWS: { id: ViewId; label: string; icon: typeof Clock3 }[] = [
   { id: "timeline", label: "时间轴", icon: AlignVerticalJustifyStart },
 ];
 
-const FILTERS: AgendaVisual[] = ["course", "ddl", "notice", "imported", "personal"];
+/**
+ * 筛选维度。
+ *
+ * 以前直接拿 `visual` 当筛选条件，但云端通知的 visual 一律是 notice ——
+ * 于是「校园」里混着全校、本学院、别的学院三类东西，「个人」则永远是空的。
+ * 画像算了半天（lib/categorize.mjs 的 category）却没人用，等于没生效。
+ *
+ * 现在按「这条内容对我意味着什么」来分：本学院的进「个人」，明确写了别学院的
+ * 单独进「其他院」，剩下才是「校园」。这样勾掉「其他院」就是真的忽略它们。
+ */
+type Bucket = "course" | "homework" | "campus" | "personal" | "other" | "imported";
+
+const BUCKET_META: Record<Bucket, { name: string; color: string; dark: string; bg: string; hint?: string }> = {
+  course: { name: "课程", color: "var(--course)", dark: "var(--course-ink)", bg: "var(--course-bg)" },
+  homework: { name: "作业", color: "var(--ddl)", dark: "var(--ddl-ink)", bg: "var(--ddl-bg)" },
+  campus: { name: "校园", color: "var(--notice)", dark: "var(--notice-ink)", bg: "var(--notice-bg)", hint: "面向全校的通知" },
+  personal: {
+    name: "个人",
+    color: "var(--personal)",
+    dark: "var(--personal-ink)",
+    bg: "var(--personal-bg)",
+    hint: "标题指向你所在学院的通知，按画像判定",
+  },
+  other: {
+    name: "其他院",
+    color: "var(--other)",
+    dark: "var(--other-ink)",
+    bg: "var(--other-bg)",
+    hint: "明确写了别的学院，默认不参与「仅看相关」",
+  },
+  imported: { name: "导入", color: "var(--imported)", dark: "var(--imported-ink)", bg: "var(--imported-bg)" },
+};
+
+const BUCKETS: Bucket[] = ["course", "homework", "campus", "personal", "other", "imported"];
+
+/** 视图事件 → 筛选桶。本地数据按 visual 直判，云端通知按画像算出的 category 拆 */
+function bucketOf(event: AgendaEvent): Bucket {
+  if (event.visual === "imported") return "imported";
+  if (event.visual === "course") return "course";
+  if (event.visual === "ddl") return "homework";
+  if (event.visual === "personal") return "personal";
+  if (event.category === "personal") return "personal";
+  if (event.category === "other") return "other";
+  return "campus";
+}
 
 const HIDDEN_KEY = "szu-cal-hidden";
 const CAMPUS_FILTER_KEY = "szu-cal-campus-filter:v1";
@@ -77,7 +121,7 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
   const [view, setView] = useState<ViewId>("month");
   const [quickSwitch, setQuickSwitch] = useState(false);
   const [selected, setSelected] = useState<Date>(startOfToday);
-  const [enabled, setEnabled] = useState<AgendaVisual[]>([...FILTERS]);
+  const [enabled, setEnabled] = useState<Bucket[]>([...BUCKETS]);
   const [onlyRelated, setOnlyRelated] = useState(true);
   const [campusFilterOpen, setCampusFilterOpen] = useState(false);
   const [campusOff, setCampusOff] = useState<string[]>([]);
@@ -134,17 +178,38 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
     );
   }, [events, personal, personalStorageKey]);
 
-  const filteredEvents = useMemo(() =>
-    scoreAgenda(displayEvents, profile, hiddenIds)
-      .filter((event) => enabled.includes(event.visual) &&
-        (event.visual !== "notice" || !event.boardGroup ||
+  /** 打分 + 细分栏目过滤后的全集。筛选按钮要显示各类条数，所以单独留一层 */
+  const scoredEvents = useMemo(
+    () =>
+      scoreAgenda(displayEvents, profile, hiddenIds).filter(
+        (event) =>
+          event.visual !== "notice" ||
+          !event.boardGroup ||
           (!campusOff.includes(event.boardGroup) &&
-           (!event.boardSubtype || !campusOff.includes(`${event.boardGroup}:${event.boardSubtype}`))))),
-  [displayEvents, profile, hiddenIds, enabled, campusOff]);
+            (!event.boardSubtype || !campusOff.includes(`${event.boardGroup}:${event.boardSubtype}`)))
+      ),
+    [displayEvents, profile, hiddenIds, campusOff]
+  );
+
+  const filteredEvents = useMemo(
+    () => scoredEvents.filter((event) => enabled.includes(bucketOf(event))),
+    [scoredEvents, enabled]
+  );
+
+  /** 每类还剩多少条，直接摆在筛选按钮上——画像有没有生效，看数字就知道 */
+  const bucketCounts = useMemo(() => {
+    const counts = new Map<Bucket, number>();
+    for (const event of scoredEvents) {
+      const bucket = bucketOf(event);
+      counts.set(bucket, (counts.get(bucket) || 0) + 1);
+    }
+    return counts;
+  }, [scoredEvents]);
+
   const relatedEvents = useMemo(() => filteredEvents.filter(isRelatedEvent), [filteredEvents]);
   const unrelatedCount = filteredEvents.length - relatedEvents.length;
   const visibleEvents = onlyRelated ? relatedEvents : filteredEvents;
-  const hasImported = events.some((event) => event.visual === "imported");
+  const hasImported = scoredEvents.some((event) => event.visual === "imported");
 
   const byDay = useMemo(() => groupByDate(visibleEvents), [visibleEvents]);
   const eventsFor = useMemo(
@@ -180,7 +245,7 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
     setSelected(addDays(selected, delta * 1));
   }
 
-  function toggleFilter(id: AgendaVisual) {
+  function toggleFilter(id: Bucket) {
     setEnabled((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   }
 
@@ -313,20 +378,29 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
         </div>
 
         <div className="filter-group">
-          {FILTERS.filter((id) => id !== "imported" || hasImported).map((id) => id === "notice" ? (
-            <CampusFilterButton key={id} enabled={enabled.includes(id)} onToggle={() => toggleFilter(id)}
-              onOpen={() => setCampusFilterOpen(true)} />
-          ) : (
-            <button
-              key={id}
-              type="button"
-              aria-pressed={enabled.includes(id)}
-              onClick={() => toggleFilter(id)}
-            >
-              <i style={{ background: VISUAL_META[id].dark }} />
-              {VISUAL_META[id].name}
-            </button>
-          ))}
+          {BUCKETS.filter((id) => id !== "imported" || hasImported).map((id) =>
+            id === "campus" ? (
+              <CampusFilterButton
+                key={id}
+                enabled={enabled.includes(id)}
+                count={bucketCounts.get(id) || 0}
+                onToggle={() => toggleFilter(id)}
+                onOpen={() => setCampusFilterOpen(true)}
+              />
+            ) : (
+              <button
+                key={id}
+                type="button"
+                aria-pressed={enabled.includes(id)}
+                title={BUCKET_META[id].hint}
+                onClick={() => toggleFilter(id)}
+              >
+                <i style={{ background: BUCKET_META[id].dark }} />
+                {BUCKET_META[id].name}
+                <span className="bucket-count">{bucketCounts.get(id) || 0}</span>
+              </button>
+            )
+          )}
           <button
             type="button"
             className="filter-toggle"

@@ -13,11 +13,16 @@ import {
   jwkwAlive,
 } from "@/lib/szu/portal";
 import { SESSION_COOKIE, loadEhallJar, readSession } from "@/lib/szu/session";
+import { guardLocalOnly } from "@/lib/local-only";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST() {
+  // 这个接口读的是服务端共享的 CAS cookie jar，公网上会取到别人的课表
+  const denied = guardLocalOnly("课表重新同步");
+  if (denied) return denied;
+
   if (!readSession(cookies().get(SESSION_COOKIE)?.value)) {
     return NextResponse.json({ ok: false, message: "请先登录", code: "UNAUTH" }, { status: 401 });
   }

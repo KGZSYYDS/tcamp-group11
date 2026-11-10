@@ -9,6 +9,7 @@ import {
   listEvents,
   subscribeEvents,
 } from "@/lib/data";
+import { IS_PUBLIC_DEPLOY } from "@/lib/runtime-mode";
 import {
   addMyEvent,
   loadCheckins,
@@ -155,6 +156,10 @@ export function useAgenda(session: SzUser | null): AgendaState {
    * 新建日程：
    * - scope=personal → 本机 MyEvent
    * - 其它 scope（school/college/grade/...）→ 云库 events 表
+   *
+   * 公网模式下「其它 scope」一律按本机处理：events 是一张所有访客共用、且只能靠
+   * 可发布 key 写入的表，开放界面直写等于让任何人都能往全校日历里塞条目。
+   * 公网版本定位是「看公共通知 + 存自己的日程」，本来也不需要跨用户发布。
    */
   const createAgendaEvent = useCallback<AgendaState["createAgendaEvent"]>(
     async (input) => {
@@ -172,7 +177,7 @@ export function useAgenda(session: SzUser | null): AgendaState {
         endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
       }
 
-      if ((input.scope || "personal") === "personal") {
+      if (IS_PUBLIC_DEPLOY || (input.scope || "personal") === "personal") {
         addMyEvent({
           kind: input.kind,
           title: input.title,
@@ -259,9 +264,11 @@ export function scoreAgenda(
     // 公共通知按标题里有没有学院名判校园 / 个人 / 别的学院
     const colleges = collegeNamesIn(item.title);
     const viewerCollege = profile?.college || "";
-    const titleCollegeMatched = viewerCollege && colleges.length
-      ? colleges.some((college) => sameAffiliation(college, viewerCollege))
-      : undefined;
+    // 三态：true=是本学院，false=确认是别学院，undefined=没设画像、判断不了
+    const titleCollegeMatched: boolean | undefined =
+      viewerCollege && colleges.length
+        ? colleges.some((college) => sameAffiliation(college, viewerCollege))
+        : undefined;
     const schoolWideTitle = isSchoolWide(item.title);
     const category = categoryOf({
       source: item.source,
@@ -269,7 +276,7 @@ export function scoreAgenda(
       scope: item.scope,
       hasCollege: colleges.length > 0,
       schoolWide: schoolWideTitle,
-      isMine: Boolean(titleCollegeMatched),
+      isMine: titleCollegeMatched,
     });
 
     if (!item.scope || item.scope === "personal" || item.movedFromCampus) {

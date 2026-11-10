@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { weflowStatusNow } from "@/lib/wechat-local";
+import { IS_PUBLIC_DEPLOY } from "@/lib/runtime-mode";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -18,5 +19,17 @@ export const runtime = "nodejs";
  * 一起停住。所以首次请求先回 stage:"probing"，真探测在后台跑，前端轮询取结果。
  */
 export async function GET() {
+  /**
+   * 公网模式下直接回「不可用」，并且**不启动探测**。
+   * 这里不返回 403：前端拿到 available:false 就会收起自动通道、只留手动导入，
+   * 属于正常降级；回 403 反而会让页面弹出错误提示。
+   */
+  if (IS_PUBLIC_DEPLOY) {
+    return NextResponse.json({
+      available: false,
+      stage: "disabled",
+      error: "公网版本不读取本机微信数据，请使用「粘贴导入」或「导入文件」。",
+    });
+  }
   return NextResponse.json(weflowStatusNow());
 }

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import { NextResponse } from "next/server";
 import { dedupeItems, extractFromChats } from "@/lib/chat-extract";
 import { cleanup, exportGroup, findWeFlow, weflowStatus } from "@/lib/wechat-local";
+import { guardLocalOnly } from "@/lib/local-only";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -27,6 +28,10 @@ interface GroupArg {
 }
 
 export async function POST(request: Request) {
+  // 扫描要调本机 WeFlow 导出微信库，公网实例上既没有也不该有
+  const denied = guardLocalOnly("微信群扫描");
+  if (denied) return denied;
+
   const s = weflowStatus();
   if (!s.available || !s.connected) {
     return NextResponse.json(

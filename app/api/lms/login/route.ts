@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { clearSession, loginLms } from "@/lib/szu-lms";
+import { guardLocalOnly } from "@/lib/local-only";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -14,6 +15,10 @@ export const runtime = "nodejs";
  * 服务端这条路，用户在日历里输一次账号密码就完事，换电脑也一样。
  */
 export async function POST(request: Request) {
+  // 密码走服务端、会话落 data/ 单文件：只在本机运行时成立
+  const denied = guardLocalOnly("畅课登录");
+  if (denied) return denied;
+
   let body: { username?: unknown; password?: unknown } = {};
   try {
     body = await request.json();
@@ -42,6 +47,9 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE() {
+  const denied = guardLocalOnly("畅课登录");
+  if (denied) return denied;
+
   clearSession();
   return NextResponse.json({ ok: true });
 }

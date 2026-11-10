@@ -1,4 +1,6 @@
 import { cloud } from "./cloud";
+import { loadProfile, saveLocalProfile } from "./local-store";
+import { IS_PUBLIC_DEPLOY } from "./runtime-mode";
 import type { CalEvent, CalEventInput, Profile } from "./types";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -65,7 +67,44 @@ function publishEvents(rows: CalEvent[]) {
   }
 }
 
+/**
+ * 浏览器侧走本服务的 /api/events。
+ *
+ * 直连云库的代价是「每个访客一次全表拉取」——404 行、约 0.85 秒，十个人同时打开
+ * 就是十次。服务端那份 5 分钟缓存只有在请求真的进到服务端时才起作用，所以浏览器
+ * 必须改打自己家的接口。
+ *
+ * 返回 null 表示这一层不可用（本地直接起静态服务器、接口 404 等），调用方退回直连。
+ */
+async function fetchEventsViaApi(): Promise<CalEvent[] | null> {
+  const timeout = new AbortController();
+  const timer = setTimeout(() => timeout.abort(), 8_000);
+  try {
+    const res = await fetch("/api/events", {
+      signal: timeout.signal,
+      // 让浏览器也跟着缓存一分钟，切页面回来不必再问一次
+      cache: "default",
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { events?: CalEvent[] };
+    return Array.isArray(body.events) ? body.events : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function fetchEvents(): Promise<CalEvent[]> {
+  /**
+   * 只有在浏览器里才走 /api/events。
+   * 服务端（也就是 /api/events 自己）必须直连云库，否则会自己调自己。
+   */
+  if (typeof window !== "undefined") {
+    const viaApi = await fetchEventsViaApi();
+    if (viaApi) return viaApi;
+  }
+
   const timeout = new AbortController();
   const timer = setTimeout(() => timeout.abort(), 12_000);
   try {
@@ -188,37 +227,65 @@ export async function eventExistsBySourceUrl(url: string): Promise<boolean> {
 
 
 // ---------- 个人画像 ----------
+//
+// 画像改存本机（localStorage），不再走云库 profiles 表。
+//
+// 原因不是性能，是安全：那张表的 owner_id 实测恒为字符串 'anon'，而且没有有效的
+// 行级隔离——匿名 key 读得到别人的学院/年级/课程，也写得进去（整行覆盖）。
+// 画像属于「只关于我」的数据，与课表、作业同级，放浏览器里既够用也不会串。
+//
+// 旧版本存过云的用户会走一次迁移：读到云上那行 → 落到本机 → 之后只用本机的。
 
 export async function getProfile(): Promise<Profile | null> {
-  const result = await cloud.database.from("profiles").select("*").maybeSingle();
-  const data: any = result.data;
-  if (result.error) throw new Error(result.error.message);
-  if (!data) return null;
-  return {
-    college: data.college ?? undefined,
-    major: data.major ?? undefined,
-    grade: data.grade ?? undefined,
-    level: data.level ?? undefined,
-    courses: data.courses ?? [],
-  };
+  const local = loadProfile();
+  if (local) {
+    return {
+      college: local.college,
+      major: local.major,
+      grade: local.grade,
+      level: local.level,
+      courses: local.courses,
+    };
+  }
+
+  /**
+   * 云端迁移只在本机模式下做。
+   *
+   * 公网上这一步是有害的：profiles 表的 owner_id 恒为 'anon'，所有访客共用同一行，
+   * 于是「本地为空」的新访客会把别人的学院画像读进自己浏览器，等于反向泄露。
+   * 公网模式下本机没有画像就是没有，让用户自己选一次学院即可。
+   */
+  if (IS_PUBLIC_DEPLOY) return null;
+
+  // 迁移：老数据还在云上，取一次搬到本机，之后不再读云
+  try {
+    const result = await cloud.database.from("profiles").select("*").maybeSingle();
+    const data: any = result.data;
+    if (result.error || !data) return null;
+    const migrated: Profile = {
+      college: data.college ?? undefined,
+      major: data.major ?? undefined,
+      grade: data.grade ?? undefined,
+      level: data.level ?? undefined,
+      courses: Array.isArray(data.courses) ? data.courses : [],
+    };
+    if (migrated.college || migrated.grade || migrated.courses.length) {
+      saveLocalProfile(migrated);
+    }
+    return migrated;
+  } catch {
+    return null;
+  }
 }
 
 export async function saveProfile(p: Profile) {
-  const { data, error } = await cloud.database
-    .from("profiles")
-    .upsert(
-      {
-        college: p.college?.trim() || null,
-        major: p.major?.trim() || null,
-        grade: p.grade?.trim() || null,
-        level: p.level || null,
-        courses: p.courses,
-      } as any,
-      { onConflict: "owner_id" }
-    )
-    .select();
-  if (error) throw new Error(error.message);
-  assertAffected(data);
+  saveLocalProfile({
+    college: p.college,
+    major: p.major,
+    grade: p.grade,
+    level: p.level,
+    courses: p.courses || [],
+  });
 }
 
 // ---------- 同步导入（浏览器插件 / 采集器） ----------

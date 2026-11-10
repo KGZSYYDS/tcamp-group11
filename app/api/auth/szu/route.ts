@@ -16,13 +16,8 @@ import {
   collectTimetable,
   fetchProfile,
 } from "@/lib/szu/portal";
-import {
-  SESSION_COOKIE,
-  SESSION_DAYS,
-  createSession,
-  saveEhallJar,
-  saveJwkwJar,
-} from "@/lib/szu/session";
+import { SESSION_COOKIE, SESSION_DAYS, createSession, saveEhallJar, saveJwkwJar } from "@/lib/szu/session";
+import { guardLocalOnly } from "@/lib/local-only";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,6 +27,14 @@ function fail(status: number, message: string, code?: string) {
 }
 
 export async function POST(req: Request) {
+  /**
+   * 统一认证会话会落到 data/.ehall-session.json 这个**服务端单文件**里。
+   * 单机跑的时候它是「我这台电脑的缓存」，公网上就变成所有人共用一份 —— B 能借
+   * A 的会话去教务系统取课表。所以公网模式直接关掉，改用手填画像 / 导入课表文件。
+   */
+  const denied = guardLocalOnly("统一认证登录");
+  if (denied) return denied;
+
   let input: { studentId?: unknown; password?: unknown };
   try {
     input = await req.json();

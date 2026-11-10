@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { getProfile, saveProfile } from "@/lib/data";
+import { IS_PUBLIC_DEPLOY } from "@/lib/runtime-mode";
 import type { SzUser } from "@/lib/szu-types";
 import LoginPanel from "@/components/LoginPanel";
 import WeChatImporter from "@/components/WeChatImporter";
@@ -328,6 +329,20 @@ export default function ProfilePanel({ session, onSignedIn, onSignOut }: Props) 
             </div>
             <p className="mt-3 text-xs text-gray-400">
               统一认证登录，本机免登录 7 天。密码没有保存，课表存在这台设备的浏览器里。
+            </p>
+          </>
+        ) : IS_PUBLIC_DEPLOY ? (
+          /**
+           * 公网版本不提供统一认证登录：服务端只有一份 cookie jar，A 登录后 B 会读到 A
+           * 的课表。这里直接把入口收掉，改成「手填画像 + 导入课表文件」。
+           */
+          <>
+            <h2 className="mb-2 font-medium">账号</h2>
+            <p className="text-sm text-gray-600">
+              公网版本不提供统一认证登录 —— 服务器上只存得下一份登录会话，多人共用会串号。
+            </p>
+            <p className="mt-2 text-xs text-gray-400">
+              需要课表？在本机用采集脚本导出 JSON，再到下面导入；画像直接在左侧手填即可。
             </p>
           </>
         ) : (

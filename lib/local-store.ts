@@ -158,6 +158,61 @@ function itemKey(e: PersonalItem) {
   return `${e.startAt.slice(0, 10)}|${e.kind}|${e.title}`;
 }
 
+// ---------- 个人画像（本机） ----------
+
+/**
+ * 画像（学院 / 专业 / 年级 / 本学期的课）同样不该放云端。
+ *
+ * 之前它存在云库 `profiles` 表里，配的是 `.maybeSingle()`——一句不带过滤条件的查询，
+ * 靠 RLS 兜底。实测那张表的 owner_id 恒为字符串 'anon'，匿名 key 既能读到别人的
+ * 学院年级，也能整行覆盖。公网一放出去，等于把每个人的画像摊开，还允许任何人改。
+ *
+ * 与 ddls 一样，这类「只关于我、换设备也不心疼」的数据放本机最省事也最安全。
+ */
+const PROFILE_KEY = "szu-calendar:profile:v1";
+
+export interface StoredProfile {
+  college?: string;
+  major?: string;
+  grade?: string;
+  level?: string;
+  courses: string[];
+  savedAt?: string;
+}
+
+export function loadProfile(): StoredProfile | null {
+  if (!isBrowser()) return null;
+  try {
+    const raw = window.localStorage.getItem(PROFILE_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw) as StoredProfile;
+    if (!p || typeof p !== "object") return null;
+    return { ...p, courses: Array.isArray(p.courses) ? p.courses.filter((c) => typeof c === "string") : [] };
+  } catch {
+    return null;
+  }
+}
+
+export function saveLocalProfile(p: StoredProfile) {
+  if (!isBrowser()) return;
+  window.localStorage.setItem(
+    PROFILE_KEY,
+    JSON.stringify({
+      college: p.college?.trim() || undefined,
+      major: p.major?.trim() || undefined,
+      grade: p.grade?.trim() || undefined,
+      level: p.level || undefined,
+      courses: Array.from(new Set((p.courses || []).map((c) => c.trim()).filter(Boolean))),
+      savedAt: new Date().toISOString(),
+    })
+  );
+}
+
+export function clearProfile() {
+  if (!isBrowser()) return;
+  window.localStorage.removeItem(PROFILE_KEY);
+}
+
 // ---------- 作业 / 截止日期（本机） ----------
 
 /**

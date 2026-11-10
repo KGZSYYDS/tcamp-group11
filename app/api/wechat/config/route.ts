@@ -11,6 +11,7 @@ import {
   weflowStatus,
   writeConfig,
 } from "@/lib/wechat-local";
+import { guardLocalOnly } from "@/lib/local-only";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -25,6 +26,10 @@ export const runtime = "nodejs";
  * 有可能挑到旧的。让用户看一眼「是不是这个」比默默用错的强。
  */
 export async function GET() {
+  // 这个接口会扫服务器磁盘并回吐路径，公网暴露等于给陌生人一份目录结构
+  const denied = guardLocalOnly("微信通道探测");
+  if (denied) return denied;
+
   const cfg = readConfig();
   const exe = findWeFlow();
   return NextResponse.json({
@@ -35,6 +40,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const denied = guardLocalOnly("微信通道配置");
+  if (denied) return denied;
+
   let body: { exePath?: unknown; wechatDir?: unknown } = {};
   try {
     body = await request.json();

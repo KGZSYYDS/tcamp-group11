@@ -56,6 +56,11 @@ check("公共·没提学院 → 校园", categoryOf(pub()), "campus");
 check("公共·提本学院 → 个人", categoryOf(pub({ hasCollege: true, isMine: true })), "personal");
 check("公共·提别学院 → other", categoryOf(pub({ hasCollege: true, isMine: false })), "other");
 check(
+  "公共·提学院但没设画像 → 校园（不替用户判断「别人的」）",
+  categoryOf(pub({ hasCollege: true, isMine: undefined })),
+  "campus"
+);
+check(
   "公共·有学院名但写明全校 → 校园",
   categoryOf(pub({ hasCollege: true, isMine: false, schoolWide: true })),
   "campus"

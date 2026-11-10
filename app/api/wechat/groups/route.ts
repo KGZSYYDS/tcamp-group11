@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { findWeFlow, listGroups, scoreGroup, weflowStatus } from "@/lib/wechat-local";
+import { guardLocalOnly } from "@/lib/local-only";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -11,6 +12,10 @@ export const runtime = "nodejs";
  * 所以带上分数由前端默认勾选前几个；分数只影响排序和默认勾选，不影响能不能选。
  */
 export async function GET() {
+  // 群列表来自本机微信数据库，公网实例上没有也要明确拒绝而不是假装为空
+  const denied = guardLocalOnly("微信群列表");
+  if (denied) return denied;
+
   const s = weflowStatus();
   if (!s.available) {
     return NextResponse.json({ error: s.error || "本机没有可用的微信通道" }, { status: 503 });

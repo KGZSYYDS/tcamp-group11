@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createEvent, eventExistsBySourceUrl } from "@/lib/data";
 import { extractLocation } from "@/lib/location.mjs";
 import { boardGroup, writeBoardMetadata } from "@/lib/board-taxonomy.mjs";
+import { guardIngestToken } from "@/lib/local-only";
 import type { EventKind } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -57,6 +58,14 @@ interface BoardItem {
 }
 
 export async function POST(request: Request) {
+  /**
+   * 这个接口往「全校可见」的 events 表插行，等于发布全校通知的权限。
+   * 本机跑时无所谓，公网上必须凭令牌：没配 INGEST_TOKEN 就直接关闭，
+   * 不提供「默认放行」这种便利。
+   */
+  const denied = guardIngestToken(request);
+  if (denied) return denied;
+
   let body: { items?: BoardItem[] };
   try {
     body = await request.json();

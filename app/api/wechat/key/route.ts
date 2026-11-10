@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { invalidateStatus, keyJobState, startKeyJob, weflowStatus } from "@/lib/wechat-local";
+import { guardLocalOnly } from "@/lib/local-only";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -15,10 +16,17 @@ export const runtime = "nodejs";
  * WeFlow 的输出可能含密钥，这里一个字都不返回。
  */
 export async function GET() {
+  const denied = guardLocalOnly("微信密钥");
+  if (denied) return denied;
+
   return NextResponse.json({ job: keyJobState(), status: weflowStatus() });
 }
 
 export async function POST() {
+  // 取微信数据库密钥是纯粹的「操作这台电脑」，绝不能在公网实例上跑
+  const denied = guardLocalOnly("微信密钥");
+  if (denied) return denied;
+
   const r = startKeyJob();
   invalidateStatus();
   return NextResponse.json(r, { status: r.started ? 200 : 503 });

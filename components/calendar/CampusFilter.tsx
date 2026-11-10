@@ -4,8 +4,9 @@ import { useEffect, useRef } from "react";
 import { ChevronDown, X } from "lucide-react";
 import { BOARD_GROUPS } from "@/lib/board-taxonomy.mjs";
 
-export function CampusFilterButton({ enabled, onToggle, onOpen }: {
+export function CampusFilterButton({ enabled, count, onToggle, onOpen }: {
   enabled: boolean;
+  count?: number;
   onToggle: () => void;
   onOpen: () => void;
 }) {
@@ -47,7 +48,7 @@ export function CampusFilterButton({ enabled, onToggle, onOpen }: {
           }
           onToggle();
         }}
-      ><i />校园</button>
+      ><i />校园{typeof count === "number" ? <span className="bucket-count">{count}</span> : null}</button>
       <button type="button" aria-label="校园细分筛选" aria-haspopup="dialog" onClick={onOpen}>
         <ChevronDown size={14} aria-hidden="true" />
       </button>
