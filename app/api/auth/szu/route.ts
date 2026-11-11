@@ -29,6 +29,7 @@ import {
   fetchProfile,
 } from "@/lib/szu/portal";
 import { SESSION_COOKIE, SESSION_DAYS, createSession, saveEhallJar, saveJwkwJar } from "@/lib/szu/session";
+import { saveSession as saveLmsSession, ssoIntoLms } from "@/lib/szu-lms";
 import { ownerKey } from "@/lib/sessions/owner";
 
 export const runtime = "nodejs";
@@ -183,6 +184,28 @@ export async function POST(req: Request) {
     saveEhallJar(owner, jar);
     if (jwkwOk) saveJwkwJar(owner, jar);
 
+    /**
+     * ⑤ 顺手把畅课也连上。
+     *
+     * 畅课（lms.szu.edu.cn）是另一套系统，登录它要再走一遍 CAS。
+     * 用户本来得在 DDL 页再输一次学号密码 —— 而公网环境下那又是一次
+     * 「非可信浏览器」登录，会再要一条验证码，等于把 MFA 做两遍。
+     *
+     * 其实不用：这次登录刚拿到的 CAS 票据（TGT）还在有效期内，
+     * 拿它单点过去就行。所以放在这里、用同一个 jar，密码一次就够。
+     * 失败静默 —— 课表已经拿到了，畅课连不上不该让整次登录翻脸。
+     */
+    let lmsOk = false;
+    try {
+      const sso = await ssoIntoLms(jar.dump());
+      if (sso.ok) {
+        saveLmsSession(owner, sso.jar.dumpLms());
+        lmsOk = true;
+      }
+    } catch {
+      // 忽略：LmsSync 卡片里还能手动补
+    }
+
     const { token, payload } = createSession(profile);
     const res = NextResponse.json({
       ok: true,
@@ -192,6 +215,7 @@ export async function POST(req: Request) {
       warning,
       jwkwOk,
       jwkwError,
+      lmsOk,
     });
     res.cookies.set(SESSION_COOKIE, token, {
       httpOnly: true,

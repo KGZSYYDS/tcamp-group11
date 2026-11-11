@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { importFile } from "@/lib/local-store";
+import { importDdls, importFile } from "@/lib/local-store";
 
 interface Props {
   /** 登录成功、课表已写进本机之后通知外层刷新 */
@@ -18,6 +18,8 @@ type Result = {
   code?: string;
   profile?: { name?: string; studentId?: string };
   timetable?: unknown;
+  /** 服务端顺手把畅课也连上了（用同一枚 CAS 票据换的票） */
+  lmsOk?: boolean;
   warning?: string;
   debug?: { trace?: string[]; [k: string]: unknown };
 };
@@ -77,6 +79,28 @@ export default function LoginPanel({ onLoggedIn }: Props) {
     setPassword("");
     setCode("");
     setMfaToken("");
+
+    /**
+     * 畅课已经连上了，就把作业一起拉进本机。
+     *
+     * 不做这一步的话，用户登录完切到「DDL」页仍然是空的 ——
+     * 得等他自己找到那张卡片点同步，而他根本不知道有这回事。
+     * 拉失败不提示：课表已经好了，作业可以稍后再同步。
+     */
+    if (data.lmsOk) {
+      void (async () => {
+        try {
+          const r = await fetch("/api/lms/ddls", { cache: "no-store" });
+          if (!r.ok) return;
+          const j = await r.json();
+          const items = Array.isArray(j.items) ? j.items : [];
+          if (items.length) importDdls(items);
+        } catch {
+          /* 忽略：DDL 页那张卡片还能手动同步 */
+        }
+      })();
+    }
+
     onLoggedIn();
   }
 

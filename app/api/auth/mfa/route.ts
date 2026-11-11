@@ -13,6 +13,7 @@ import { CAS_HOST, CasError, casSsoInto, submitReAuthCode, traceAdd, type Trace 
 import { EHALL_SERVICE, JWKW_SERVICE, collectTimetable, ehallAlive, fetchProfile } from "@/lib/szu/portal";
 import { dropMfa, getMfa } from "@/lib/szu/mfa-store";
 import { SESSION_COOKIE, SESSION_DAYS, createSession, saveEhallJar, saveJwkwJar } from "@/lib/szu/session";
+import { saveSession as saveLmsSession, ssoIntoLms } from "@/lib/szu-lms";
 import { ownerKey } from "@/lib/sessions/owner";
 
 export const runtime = "nodejs";
@@ -94,8 +95,20 @@ export async function POST(req: Request) {
     saveEhallJar(owner, jar);
     if (jwkwOk) saveJwkwJar(owner, jar);
 
+    // ⑤ 顺手把畅课也连上（同 szu 路由：趁票据还新鲜，别让用户再登一次）
+    let lmsOk = false;
+    try {
+      const sso = await ssoIntoLms(jar.dump());
+      if (sso.ok) {
+        saveLmsSession(owner, sso.jar.dumpLms());
+        lmsOk = true;
+      }
+    } catch {
+      /* 畅课连不上不影响登录 */
+    }
+
     const { token: session, payload } = createSession(profile);
-    const res = NextResponse.json({ ok: true, user: payload, profile, timetable, warning, jwkwOk });
+    const res = NextResponse.json({ ok: true, user: payload, profile, timetable, warning, jwkwOk, lmsOk });
     res.cookies.set(SESSION_COOKIE, session, {
       httpOnly: true,
       sameSite: "lax",

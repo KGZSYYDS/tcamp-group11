@@ -44,6 +44,8 @@ export default function LmsSync({ onSynced }: Props) {
   const [msg, setMsg] = useState("");
   const [error, setError] = useState("");
   const [result, setResult] = useState<SyncResult | null>(null);
+  /** 免密码连接失败且明确要重新登录时，给出「去我的页」的指引而不是让对方干试 */
+  const [needRelogin, setNeedRelogin] = useState(false);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -112,6 +114,33 @@ export default function LmsSync({ onSynced }: Props) {
     autoTried.current = true;
     void sync();
   }, [status?.loggedIn, sync]);
+
+  /**
+   * 免密码连接：用刚才登录统一认证留下的票据直接换畅课的会话。
+   *
+   * 这是主路径 —— 用户刚输过学号密码，不该为了作业再输一遍。
+   */
+  async function bindBySso() {
+    setBusy(true);
+    setError("");
+    setMsg("");
+    setNeedRelogin(false);
+    try {
+      const r = await fetch("/api/lms/sso", { method: "POST" });
+      const j = await r.json();
+      if (!r.ok) {
+        if (j.needsRelogin) setNeedRelogin(true);
+        throw new Error(j.error || "连接失败");
+      }
+      setStatus({ loggedIn: true, ageDays: 0 });
+      setMsg("已连上畅课，正在拉作业…");
+      setBusy(false);
+      await sync();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "连接失败");
+      setBusy(false);
+    }
+  }
 
   /** 登录成功后直接同步一次，少点一次按钮 */
   async function login(e: React.FormEvent) {
@@ -199,21 +228,38 @@ export default function LmsSync({ onSynced }: Props) {
               </button>
             </>
           ) : (
-            <button
-              type="button"
-              onClick={() => setPhase(phase === "login" ? "idle" : "login")}
-              className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
-            >
-              {phase === "login" ? "收起" : "登录畅课 →"}
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => void bindBySso()}
+                disabled={busy}
+                className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-700 disabled:opacity-40"
+              >
+                {busy ? "连接中…" : "连接畅课"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setPhase(phase === "login" ? "idle" : "login")}
+                className="rounded-lg px-2 py-1.5 text-xs text-gray-400 hover:text-gray-600"
+              >
+                {phase === "login" ? "收起" : "用密码登录"}
+              </button>
+            </>
           )}
         </div>
       </div>
 
       <p className="mt-1.5 text-[11px] leading-relaxed text-gray-400">
-        登录一次统一认证，把 lms.szu.edu.cn 上的作业截止直接拉进这个列表。
-        密码不保存，只缓存畅课的登录态（存在本机 data/ 目录）。
+        畅课是独立于办事大厅的系统。刚登录过统一认证的话，点「连接畅课」直接换票进入，
+        不用再输密码。连上后作业截止会自动并进这个列表。
       </p>
+
+      {needRelogin && (
+        <p className="mt-2 rounded-lg bg-amber-50 px-2.5 py-2 text-[11px] leading-relaxed text-amber-700">
+          统一认证的登录票据已过期。到「我的」页退出登录，再用学号密码登一次，
+          畅课会自动一起连上（不需要在这里另外输密码）。
+        </p>
+      )}
 
       {/* ---------------- 登录表单 ---------------- */}
       {!connected && phase === "login" && (

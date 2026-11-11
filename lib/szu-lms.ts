@@ -259,6 +259,57 @@ export async function loginLms(
   return { ok: true, studentId };
 }
 
+/**
+ * 统一认证会话的 dump 形状，与 `lib/szu/cas.ts` 的 `CookieJar.dump()` 一致。
+ */
+export type CasDump = [string, [string, string][]][];
+
+/**
+ * 用统一认证里那枚 CAS 票据（CASTGC）单点进畅课，不碰密码。
+ *
+ * 为什么必须「顺手」做：TGT 有生命周期（几小时），
+ * 隔一段时间再拿旧票据来换，authserver 会直接把登录页糊回来。
+ * 所以调用点只有一处 —— `/api/auth/szu` 刚登录成功、TGT 最新鲜的那一刻。
+ *
+ * 失败不算错：畅课挂了 / 账号没开通，都不该影响主流程（课表已经拿到了）。
+ */
+export async function ssoIntoLms(dump: CasDump): Promise<{
+  ok: boolean;
+  jar: Jar;
+  message?: string;
+}> {
+  const jar = new Jar();
+  for (const [d, pairs] of dump || []) {
+    jar.store.set(d, new Map(pairs));
+  }
+
+  // 跟完 lms → identity → identity broker → authserver 这条链。
+  // 票据有效时，authserver 会在中途直接 302 带 ticket 回去，不会停下来要密码。
+  let url = `${LMS}/login`;
+  let landed = "";
+  for (let i = 0; i < 8; i++) {
+    const res = await go(jar, url);
+    const loc = res.headers.get("location");
+    if (!loc) {
+      landed = await res.text();
+      break;
+    }
+    url = new URL(loc, url).toString();
+  }
+
+  if (/pwdEncryptSalt/.test(landed)) {
+    return { ok: false, jar, message: "统一认证票据已过期" };
+  }
+
+  // 用接口验真身：比看页面标题可靠（页面 200 不代表有会话）
+  const probe = await go(jar, `${LMS}/api/todos`);
+  const ct = probe.headers.get("content-type") || "";
+  if (probe.status !== 200 || !ct.includes("json")) {
+    return { ok: false, jar, message: "畅课没有接受这次单点登录" };
+  }
+  return { ok: true, jar };
+}
+
 export function saveSession(owner: string, dump: [string, string[]][]) {
   const file = lmsFile(owner);
   fs.writeFileSync(file, JSON.stringify(dump), "utf-8");
