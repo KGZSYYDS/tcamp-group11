@@ -10,9 +10,10 @@
  * 这个接口不发密码、不建会话、不写任何文件，只做三次 GET，报告「通不通、结构对不对」。
  * 不返回任何 cookie 值，只返回 cookie 名。
  *
- * 公网上谁都能调，所以加了进程内冷却（同一实例 15 秒一次），避免被当成打学校的跳板。
+ * 只供本机排查。结果含运行机器的出口 IP，同一实例每 15 秒可运行一次。
  */
 import { NextResponse } from "next/server";
+import { guardLocalOnly } from "@/lib/local-only";
 import { CAS_HOST, CookieJar, requestWith } from "@/lib/szu/cas";
 import { EHALL, JWKW } from "@/lib/szu/portal";
 
@@ -48,6 +49,9 @@ async function probe(jar: CookieJar, url: string) {
 }
 
 export async function GET() {
+  const denied = guardLocalOnly("登录链路诊断");
+  if (denied) return denied;
+
   const now = Date.now();
   if (now - lastRun < COOLDOWN_MS) {
     return NextResponse.json(
