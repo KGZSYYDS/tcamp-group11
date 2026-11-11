@@ -21,11 +21,21 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = Number(process.env.SZU_PORT || 3000);
-const TAILSCALE =
-  process.env.TAILSCALE ||
-  (existsSync("C:\\Program Files\\Tailscale\\tailscale.exe")
-    ? "C:\\Program Files\\Tailscale\\tailscale.exe"
-    : "tailscale.exe");
+
+/**
+ * 客户端可能在三个地方，按顺序找：
+ *   1. 环境变量指定（临时换版本时用）
+ *   2. 项目内的免安装目录（MSI 装不上时的出路，用户手工解包的就是这个）
+ *   3. 官方安装目录
+ *   4. 兜底交给 PATH
+ */
+const CANDIDATES = [
+  process.env.TAILSCALE,
+  path.join(ROOT, "Tailscale", "tailscale.exe"),
+  "C:\\Program Files\\Tailscale\\tailscale.exe",
+].filter(Boolean);
+
+const TAILSCALE = CANDIDATES.find((p) => existsSync(p)) || "tailscale.exe";
 
 const log = (...a) => console.log(...a);
 
@@ -44,10 +54,12 @@ function ts(args, timeout = 60000) {
 }
 
 if (!existsSync(TAILSCALE) && TAILSCALE !== "tailscale.exe") {
-  log("没找到 Tailscale 客户端：" + TAILSCALE);
-  log("先装 Tailscale（桌面的安装包），装完再跑这个脚本。");
+  log("没找到 Tailscale 客户端。找过这些位置：");
+  for (const p of CANDIDATES) log("  - " + p);
+  log("\n把 tailscale.exe 放进项目下的 Tailscale\\ 目录，或设 TAILSCALE 环境变量。");
   process.exit(1);
 }
+log("客户端：" + TAILSCALE);
 
 // ---------- 0. 本地服务在不在 ----------
 try {
@@ -91,7 +103,9 @@ if (dnsName) log("固定地址应为：https://" + dnsName + "/");
 
 // ---------- 2. 开启 Funnel ----------
 log("\n正在把 3000 端口发布到 Funnel…");
-const funnel = await ts(["funnel", "--bg", String(PORT)], 90000);
+// --yes 必须加：不加会停在 "Do you want to enable Funnel?" 的交互确认上，
+// 在非交互环境里就是一直挂着，看起来像卡死。
+const funnel = await ts(["funnel", "--bg", "--yes", String(PORT)], 90000);
 
 if (funnel.code !== 0) {
   const all = funnel.all;

@@ -30,6 +30,9 @@ data/web/*
 !public/szu-calendar-sync.zip
 szu-calendar-sync-v*/
 
+# Tailscale 免安装客户端（70MB 二进制，各自按需下载，不进仓库）
+Tailscale/
+
 # 系统与日志
 .DS_Store
 Thumbs.db
