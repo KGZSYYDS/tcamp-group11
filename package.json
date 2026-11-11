@@ -10,6 +10,8 @@
     "start:public": "npm run build:public && node node_modules/next/dist/bin/next start -H 0.0.0.0 -p ${PORT:-3000}",
     "build:online": "node scripts/build-online.mjs",
     "online": "node scripts/online.mjs",
+    "serve": "node scripts/serve-local.mjs",
+    "funnel": "node scripts/funnel.mjs",
     "collect:profile": "node scripts/collect-profile.mjs",
     "collect:board": "node scripts/collect-board.mjs",
     "collect:web": "node scripts/collect-web.mjs",
