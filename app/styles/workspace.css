@@ -114,7 +114,7 @@ input:focus,textarea:focus,select:focus { outline:2px solid var(--brand); outlin
 .orbit-outline { stroke-linejoin:round; }
 .orbit-event { cursor:pointer; }
 .orbit-event-stroke { transition:stroke-width .16s; }
-.orbit-event:focus-visible { outline:none; }
+.orbit-event:focus { outline:none; }
 .orbit-event:focus-visible .orbit-event-stroke { stroke-width:13; filter:drop-shadow(0 0 3px var(--brand)); }
 .orbit-labels {
   display:grid; gap:4px; max-height:min(230px,calc(100dvh - 20px)); overflow:auto;
