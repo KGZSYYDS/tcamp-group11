@@ -91,6 +91,24 @@ function isBrowser() {
   return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
 }
 
+/**
+ * 本机数据变更时广播的事件名。
+ *
+ * 为什么不能只靠 `storage` 事件：`storage` 只在**别的标签页**写入时触发，
+ * 当前页自己写 localStorage 是收不到的。
+ * 于是「登录时自动拉畅课作业」写完 ddls，已经开着的 DDL 页完全不知道，
+ * 用户看到的就是「登录成功了但作业还是没有」—— 必须手动刷新才出现。
+ *
+ * 所以凡是写本机数据的地方都调一次 `notifyLocalChange()`，
+ * 各面板监听它（并且继续监听 storage 以覆盖多标签页）。
+ */
+export const LOCAL_CHANGE_EVENT = "szu-local-change";
+
+export function notifyLocalChange() {
+  if (!isBrowser()) return;
+  window.dispatchEvent(new Event(LOCAL_CHANGE_EVENT));
+}
+
 // ---------- 课表读写 ----------
 
 export function loadTimetable(): LocalTimetable | null {
@@ -109,11 +127,13 @@ export function loadTimetable(): LocalTimetable | null {
 export function saveTimetable(t: LocalTimetable) {
   if (!isBrowser()) return;
   window.localStorage.setItem(TKEY, JSON.stringify(t));
+  notifyLocalChange();
 }
 
 export function clearTimetable() {
   if (!isBrowser()) return;
   window.localStorage.removeItem(TKEY);
+  notifyLocalChange();
 }
 
 /** 导入统计，用于给用户一句明确反馈（导入了什么、有多少、来自哪个文件） */
@@ -146,11 +166,13 @@ export function loadPersonal(): LocalPersonal | null {
 export function savePersonal(p: LocalPersonal) {
   if (!isBrowser()) return;
   window.localStorage.setItem(PKEY, JSON.stringify(p));
+  notifyLocalChange();
 }
 
 export function clearPersonal() {
   if (!isBrowser()) return;
   window.localStorage.removeItem(PKEY);
+  notifyLocalChange();
 }
 
 /** 同一条事在两次采集里可能重来一遍：按「日期+标题+类型」合并，后到的覆盖先到的 */
@@ -242,6 +264,8 @@ export function loadDdls(): Ddl[] {
 function saveDdls(list: Ddl[]) {
   if (!isBrowser()) return;
   window.localStorage.setItem(DDL_KEY, JSON.stringify(list));
+  // 所有 ddls 写操作都走这里，广播一次就够
+  notifyLocalChange();
 }
 
 export function addDdl(input: DdlInput): Ddl {
@@ -357,6 +381,7 @@ export function loadCheckins(): Checkin[] {
 function saveCheckins(list: Checkin[]) {
   if (!isBrowser()) return;
   window.localStorage.setItem(CHECKIN_KEY, JSON.stringify(list));
+  notifyLocalChange();
 }
 
 export function addCheckin(input: CheckinInput): Checkin {
@@ -421,6 +446,7 @@ export function loadMyEvents(): MyEvent[] {
 function saveMyEvents(list: MyEvent[]) {
   if (!isBrowser()) return;
   window.localStorage.setItem(MYKEY, JSON.stringify(list));
+  notifyLocalChange();
 }
 
 export function addMyEvent(input: Omit<MyEvent, "id" | "createdAt">): MyEvent {
@@ -463,6 +489,7 @@ export function toggleDoneKey(key: string): string[] {
   else set.add(key);
   const next = [...set];
   window.localStorage.setItem(DONE_KEY, JSON.stringify(next));
+  notifyLocalChange();
   return next;
 }
 

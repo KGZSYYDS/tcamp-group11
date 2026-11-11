@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { importDdls } from "@/lib/local-store";
+import { importDdls, LOCAL_CHANGE_EVENT } from "@/lib/local-store";
 
 /**
  * 畅课作业同步。
@@ -61,6 +61,20 @@ export default function LmsSync({ onSynced }: Props) {
 
   useEffect(() => {
     void refreshStatus();
+    /**
+     * 本机数据变了，说明可能刚在别处（登录流程）连上了畅课。
+     *
+     * 只在挂载时查一次是不够的：用户常常先打开 DDL 页（当时还没连接），
+     * 再去「我的」页登录 —— 这里的状态会一直停在「未连接」，
+     * 而作业其实已经导进来了，卡片和列表对不上。
+     */
+    const onLocalChange = () => void refreshStatus();
+    window.addEventListener(LOCAL_CHANGE_EVENT, onLocalChange);
+    window.addEventListener("visibilitychange", onLocalChange);
+    return () => {
+      window.removeEventListener(LOCAL_CHANGE_EVENT, onLocalChange);
+      window.removeEventListener("visibilitychange", onLocalChange);
+    };
   }, [refreshStatus]);
 
   /** 拉一次作业并写进本机 */
@@ -182,6 +196,8 @@ export default function LmsSync({ onSynced }: Props) {
     setMsg("");
     setError("");
     setBusy(false);
+    // 重新登录后要能再自动同步一次，否则 autoTried 会一直挡着
+    autoTried.current = false;
   }
 
   const connected = Boolean(status?.loggedIn);

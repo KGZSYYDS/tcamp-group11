@@ -9,6 +9,7 @@ import {
   addDdl,
   loadDdls,
   loadDoneKeys,
+  LOCAL_CHANGE_EVENT,
   removeDdl,
   setDdlStatus,
   toggleDoneKey,
@@ -167,7 +168,20 @@ export default function DdlPanel() {
   useEffect(() => {
     refresh();
     const timer = setInterval(() => setNow(Date.now()), 30000);
-    return () => clearInterval(timer);
+    /**
+     * 本机 ddls 变了就重新读一遍。
+     *
+     * storage 只覆盖「别的标签页」写入，本页自己写收不到 ——
+     * 登录时自动同步畅课作业就是本页写入，没有这一条的话
+     * DDL 页会一直空着，用户以为同步失败。
+     */
+    window.addEventListener(LOCAL_CHANGE_EVENT, refresh);
+    window.addEventListener("storage", refresh);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener(LOCAL_CHANGE_EVENT, refresh);
+      window.removeEventListener("storage", refresh);
+    };
   }, [refresh]);
 
   const all = useMemo(() => buildDeadlines(ddls, events, doneKeys), [ddls, events, doneKeys]);

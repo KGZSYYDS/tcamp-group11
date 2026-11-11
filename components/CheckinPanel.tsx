@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Checkin } from "@/lib/types";
-import { addCheckin, loadCheckins, loadDdls, removeCheckin } from "@/lib/local-store";
+import { addCheckin, loadCheckins, loadDdls, LOCAL_CHANGE_EVENT, removeCheckin } from "@/lib/local-store";
 
 function nowLocalInput() {
   const d = new Date();
@@ -52,6 +52,13 @@ export default function CheckinPanel() {
 
   useEffect(() => {
     refresh();
+    // 同页写入收不到 storage 事件，本机数据变更另外广播一次
+    window.addEventListener(LOCAL_CHANGE_EVENT, refresh);
+    window.addEventListener("storage", refresh);
+    return () => {
+      window.removeEventListener(LOCAL_CHANGE_EVENT, refresh);
+      window.removeEventListener("storage", refresh);
+    };
   }, [refresh]);
 
   const teachers = useMemo(

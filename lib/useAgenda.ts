@@ -17,6 +17,7 @@ import {
   loadMyEvents,
   loadPersonal,
   loadTimetable,
+  LOCAL_CHANGE_EVENT,
   removeCheckin,
   removeDdl,
   removeMyEvent,
@@ -129,10 +130,20 @@ export function useAgenda(session: SzUser | null): AgendaState {
     return unsubscribe;
   }, [refresh]);
 
-  // 监听本机存储变化（其它 Tab 写入 / 导入），同步刷新
+  /**
+   * 监听本机存储变化。
+   *
+   * `storage` 只覆盖「别的标签页写入」，本页自己写是收不到的。
+   * 登录时自动导入畅课作业属于本页写入，缺了 LOCAL_CHANGE_EVENT 这条，
+   * 日历上就不会出现刚拉到的 DDL。
+   */
   useEffect(() => {
     window.addEventListener("storage", refreshLocal);
-    return () => window.removeEventListener("storage", refreshLocal);
+    window.addEventListener(LOCAL_CHANGE_EVENT, refreshLocal);
+    return () => {
+      window.removeEventListener("storage", refreshLocal);
+      window.removeEventListener(LOCAL_CHANGE_EVENT, refreshLocal);
+    };
   }, [refreshLocal]);
 
   const profile = useMemo<Profile>(() => {
