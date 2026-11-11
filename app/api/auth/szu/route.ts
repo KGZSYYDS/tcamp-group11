@@ -9,7 +9,18 @@
  * 不写日志、不进数据库、不落任何文件。
  */
 import { NextResponse } from "next/server";
-import { CAS_HOST, CasError, CookieJar, casLogin, casSsoInto, traceAdd, type Trace } from "@/lib/szu/cas";
+import {
+  CAS_HOST,
+  CasError,
+  CookieJar,
+  casLoginStep,
+  casSsoInto,
+  sendReAuthCode,
+  switchReAuthType,
+  traceAdd,
+  type Trace,
+} from "@/lib/szu/cas";
+import { putMfa } from "@/lib/szu/mfa-store";
 import {
   EHALL_SERVICE,
   JWKW_SERVICE,
@@ -67,8 +78,40 @@ export async function POST(req: Request) {
 
   try {
     // ① 一次密码登录，落到办事大厅
-    let { jar, finalUrl } = await casLogin(studentId, password, EHALL_SERVICE, trace);
+    const step = await casLoginStep(studentId, password, EHALL_SERVICE, trace);
     password = "";
+
+    /**
+     * ① 学校要求二次认证。
+     *
+     * 服务端每次登录都是全新会话，在学校看来是「非可信浏览器」，于是要一条短信码。
+     * 以前这里直接报错、让用户自己去浏览器里登录，等于把难题丢给用户 ——
+     * 其实这只是一张表单：发码、收回码、提交，全都能在服务端做完。
+     * 用户只需要看一眼手机，把 6 位数字填进来。
+     */
+    if (step.kind === "mfa") {
+      // 学校默认可能给企业微信/今日校园，不是人人都有；先切到短信，切不动就沿用原方式
+      if (step.ctx.reAuthType !== "3") {
+        await switchReAuthType(step.jar, step.ctx, "3", trace);
+      }
+      const sent = await sendReAuthCode(step.jar, step.ctx, trace);
+      if (!sent.ok) {
+        return fail(502, sent.message || "验证码没能发出来，请稍后重试", "MFA_SEND", { trace });
+      }
+      const mfaToken = putMfa(owner, step.jar, step.ctx, studentId);
+      const where = sent.mobile || (step.ctx.reAuthType === "3" ? "你绑定的手机" : step.ctx.what);
+      return NextResponse.json({
+        ok: false,
+        needMfa: true,
+        mfaToken,
+        phone: sent.mobile,
+        channel: step.ctx.what,
+        message: `验证码已发到 ${where}，把数字填进来就好`,
+      });
+    }
+
+    let jar = step.jar;
+    let finalUrl = step.finalUrl;
 
     /**
      * ①.5 「CAS 给了 ticket」不等于「办事大厅认了这个会话」。

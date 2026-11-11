@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { importFile } from "@/lib/local-store";
-import { IS_PUBLIC_DEPLOY } from "@/lib/runtime-mode";
 
 interface Props {
   /** 登录成功、课表已写进本机之后通知外层刷新 */
@@ -11,6 +10,10 @@ interface Props {
 
 type Result = {
   ok?: boolean;
+  needMfa?: boolean;
+  mfaToken?: string;
+  phone?: string;
+  channel?: string;
   message?: string;
   code?: string;
   profile?: { name?: string; studentId?: string };
@@ -22,25 +25,25 @@ type Result = {
 /**
  * 统一认证登录卡（内嵌，不是整页门禁）。
  *
- * 两条路，取决于部署位置：
+ * 两步：
+ *   1. 学号 + 密码
+ *   2. 如果学校要求二次认证，输一次手机验证码
  *
- * 【公网】导入浏览器会话
- *   学校按**登录地点**风控。服务端在上海机房、人在深圳：无论用密码，还是用
- *   浏览器签发的 TGT 去换票，CAS 都会把这次请求判成异地，插一层 reAuthCheck
- *   多因子认证（短信/企业微信）—— 机器永远过不去（线上实测两条路都会 302 到
- *   reAuthLoginView）。但登录完成后办事大厅/教务自己发的会话 cookie 不再经过
- *   CAS，所以让用户在自己浏览器里登录（同城，不触发风控），只把 cookie 交过来。
- *   密码和票据都不需要经过服务器。
+ * 为什么会有第 2 步：服务端每次登录都是全新会话，在学校的统一认证看来就是
+ * 「非可信浏览器」，所以要一条短信码。这跟用户在不在校园网无关 ——
+ * 触发条件是「这台设备没被信任过」。
  *
- * 【本机】直接输学号和密码
- *   同一台机器、同一个网络，不触发异地风控，一步到位。
+ * 这一步完全在服务端完成（发码 → 收码 → 提交），用户只需要看一眼手机、
+ * 把 6 位数字填进来。不需要开发者工具，也不需要复制任何东西。
  */
 export default function LoginPanel({ onLoggedIn }: Props) {
-  const [mode, setMode] = useState<"cookie" | "password">(IS_PUBLIC_DEPLOY ? "cookie" : "password");
+  const [stage, setStage] = useState<"password" | "code">("password");
   const [studentId, setStudentId] = useState("");
   const [password, setPassword] = useState("");
-  const [ehallCookie, setEhallCookie] = useState("");
-  const [jwkwCookie, setJwkwCookie] = useState("");
+  const [code, setCode] = useState("");
+  const [mfaToken, setMfaToken] = useState("");
+  const [phone, setPhone] = useState("");
+  const [channel, setChannel] = useState("短信验证码");
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState("");
   const [error, setError] = useState("");
@@ -48,9 +51,7 @@ export default function LoginPanel({ onLoggedIn }: Props) {
   const [diag, setDiag] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
 
-  function diagnosticText() {
-    return diag.join("\n");
-  }
+  const diagnosticText = () => diag.join("\n");
 
   async function copyDiag() {
     try {
@@ -62,7 +63,7 @@ export default function LoginPanel({ onLoggedIn }: Props) {
     }
   }
 
-  /** 两条路成功后的收尾完全一样：存课表、清敏感输入、通知外层 */
+  /** 成功后收尾：存课表、清敏感输入、通知外层 */
   function finish(data: Result) {
     if (data.timetable) {
       try {
@@ -74,30 +75,19 @@ export default function LoginPanel({ onLoggedIn }: Props) {
       setHint(`课表这次没取到：${data.warning}。不影响使用，可以稍后再同步一次。`);
     }
     setPassword("");
-    setEhallCookie("");
-    setJwkwCookie("");
+    setCode("");
+    setMfaToken("");
     onLoggedIn();
   }
 
-  function handleFailure(data: Result, status: number) {
-    setError(data.message || `登录失败（HTTP ${status}）`);
-    if (data.code === "NEED_CAPTCHA" || data.code === "RATE_LIMITED") {
-      setHint("遇到这种情况不要反复点登录 —— 连续失败只会让风控窗口更长。");
-    }
-    if (data.code === "REAUTH") {
-      setHint("这不是密码错误。学校把这次登录判定为异地，要求多因子认证，服务端过不去 —— 请改用「导入浏览器会话」。");
-      setMode("cookie");
-    }
+  function collectDiag(data: Result, status: number) {
     const d = data.debug;
-    if (d) {
-      setDiag([
-        `code=${data.code ?? "-"} http=${status} node=${d.node ?? "-"} getSetCookie=${d.getSetCookie ?? "-"}`,
-        `landed=${d.landed ?? "-"}`,
-        `jar=${d.jar ?? "-"}`,
-        "--- trace ---",
-        ...(Array.isArray(d.trace) ? d.trace : []),
-      ]);
-    }
+    if (!d) return;
+    setDiag([
+      `code=${data.code ?? "-"} http=${status} node=${d.node ?? "-"} getSetCookie=${d.getSetCookie ?? "-"}`,
+      `landed=${d.landed ?? "-"}`,
+      ...(Array.isArray(d.trace) ? ["--- trace ---", ...d.trace] : []),
+    ]);
   }
 
   async function submitPassword(e: React.FormEvent) {
@@ -116,8 +106,8 @@ export default function LoginPanel({ onLoggedIn }: Props) {
     }
 
     setBusy(true);
-    setStep("正在验证统一认证…");
-    const slow = setTimeout(() => setStep("认证已通过，正在读取课表…"), 3500);
+    setStep("正在登录…");
+    const slow = setTimeout(() => setStep("登录中，正在读取课表…"), 4000);
 
     try {
       const res = await fetch("/api/auth/szu", {
@@ -126,8 +116,18 @@ export default function LoginPanel({ onLoggedIn }: Props) {
         body: JSON.stringify({ studentId: studentId.trim(), password }),
       });
       const data: Result = await res.json().catch(() => ({}));
+      setPassword("");
+      if (data.needMfa && data.mfaToken) {
+        setMfaToken(data.mfaToken);
+        setPhone(data.phone ?? "");
+        setChannel(data.channel ?? "短信验证码");
+        setStage("code");
+        setHint(data.message ?? "");
+        return;
+      }
       if (!res.ok || !data.ok) {
-        handleFailure(data, res.status);
+        setError(data.message || `登录失败（HTTP ${res.status}）`);
+        collectDiag(data, res.status);
         return;
       }
       finish(data);
@@ -140,29 +140,35 @@ export default function LoginPanel({ onLoggedIn }: Props) {
     }
   }
 
-  async function submitCookies(e: React.FormEvent) {
+  async function submitCode(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    setHint("");
-    setDiag([]);
 
-    if (!ehallCookie.trim()) {
-      setError("请先粘贴办事大厅的 Cookie");
+    const clean = code.replace(/\D/g, "");
+    if (clean.length < 4) {
+      setError("请输入手机上收到的验证码");
       return;
     }
 
     setBusy(true);
-    setStep("正在用浏览器会话读取课表…");
+    setStep("正在验证…");
 
     try {
-      const res = await fetch("/api/auth/cookies", {
+      const res = await fetch("/api/auth/mfa", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ehall: ehallCookie.trim(), jwkw: jwkwCookie.trim() }),
+        body: JSON.stringify({ mfaToken, code: clean }),
       });
       const data: Result = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) {
-        handleFailure(data, res.status);
+        setError(data.message || `验证失败（HTTP ${res.status}）`);
+        if (data.code === "MFA_EXPIRED") {
+          setStage("password");
+          setMfaToken("");
+        } else {
+          setCode("");
+        }
+        collectDiag(data, res.status);
         return;
       }
       finish(data);
@@ -174,12 +180,6 @@ export default function LoginPanel({ onLoggedIn }: Props) {
     }
   }
 
-  const tabBase = "rounded-lg px-3 py-1.5 text-xs transition";
-  const tabOn = "bg-white text-indigo-700 shadow-sm";
-  const tabOff = "text-gray-500 hover:text-gray-700";
-  const areaCls =
-    "w-full rounded-lg border border-gray-200 px-3 py-2 font-mono text-[11px] leading-relaxed outline-none focus:border-indigo-400";
-
   return (
     <div>
       <h2 className="mb-1 font-medium">登录（可选）</h2>
@@ -187,93 +187,7 @@ export default function LoginPanel({ onLoggedIn }: Props) {
         不登录也能用全部功能。登录后会自动把本学期课表同步到这台设备。
       </p>
 
-      <div className="mb-4 inline-flex rounded-lg bg-gray-100 p-1">
-        <button type="button" onClick={() => setMode("cookie")} className={`${tabBase} ${mode === "cookie" ? tabOn : tabOff}`}>
-          导入浏览器会话
-        </button>
-        <button type="button" onClick={() => setMode("password")} className={`${tabBase} ${mode === "password" ? tabOn : tabOff}`}>
-          学号密码
-        </button>
-      </div>
-
-      {mode === "cookie" ? (
-        <form onSubmit={submitCookies}>
-          <ol className="mb-3 space-y-2 text-xs leading-relaxed text-gray-600">
-            <li>
-              <span className="mr-1 font-medium text-gray-800">1.</span>
-              在<b>你自己的浏览器</b>里打开{" "}
-              <a
-                href="https://ehall.szu.edu.cn"
-                target="_blank"
-                rel="noreferrer"
-                className="text-indigo-600 underline decoration-indigo-300 underline-offset-2"
-              >
-                办事大厅
-              </a>{" "}
-              并登录（同城，不会触发异地风控）。
-            </li>
-            <li>
-              <span className="mr-1 font-medium text-gray-800">2.</span>
-              按 <kbd className="rounded border border-gray-300 bg-gray-50 px-1">F12</kbd> 打开开发者工具 →{" "}
-              <b>Network / 网络</b> → 刷新页面 → 点任意一条发往办事大厅的请求 →{" "}
-              <b>Headers</b> 里找到 <code className="text-[11px]">Cookie</code>，复制它<b>后面那一整段值</b>。
-              <span className="block text-gray-400">
-                更省事：右键那条请求 → <b>Copy</b> → <b>Copy as cURL</b>，把整段粘过来也行。
-              </span>
-            </li>
-            <li>
-              <span className="mr-1 font-medium text-gray-800">3.</span>
-              同一步骤打开教务{" "}
-              <a
-                href="https://jwkw.szu.edu.cn/jwapp/sys/homeapp/index.do"
-                target="_blank"
-                rel="noreferrer"
-                className="text-indigo-600 underline decoration-indigo-300 underline-offset-2"
-              >
-                jwkw.szu.edu.cn
-              </a>
-              （会自动单点登录），同样复制一份 Cookie —— 课表的周次靠它，缺了会同步不了课表。
-            </li>
-          </ol>
-
-          <label className="block text-sm">
-            <span className="mb-1 block text-gray-600">办事大厅 Cookie</span>
-            <textarea
-              value={ehallCookie}
-              onChange={(e) => setEhallCookie(e.target.value)}
-              rows={2}
-              spellCheck={false}
-              placeholder="JSESSIONID=…; MOD_AUTH_CAS=…"
-              className={areaCls}
-            />
-          </label>
-
-          <label className="mt-3 block text-sm">
-            <span className="mb-1 block text-gray-600">教务 Cookie（用于定位教学周）</span>
-            <textarea
-              value={jwkwCookie}
-              onChange={(e) => setJwkwCookie(e.target.value)}
-              rows={2}
-              spellCheck={false}
-              placeholder="route=…; …"
-              className={areaCls}
-            />
-          </label>
-
-          <button
-            type="submit"
-            disabled={busy}
-            className="mt-3 w-full rounded-lg bg-indigo-600 py-2.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-          >
-            {busy ? step || "登录中…" : "用浏览器会话登录"}
-          </button>
-
-          <p className="mt-3 text-[11px] leading-relaxed text-gray-400">
-            Cookie 只用来代表你的登录状态，服务器不保存密码、也不保存登录票据；
-            会话文件按浏览器分开存放，和密码一样属于敏感凭据，别发给别人。
-          </p>
-        </form>
-      ) : (
+      {stage === "password" ? (
         <form onSubmit={submitPassword}>
           <label className="block text-sm">
             <span className="mb-1 block text-gray-600">学号</span>
@@ -308,9 +222,55 @@ export default function LoginPanel({ onLoggedIn }: Props) {
           </button>
 
           <p className="mt-3 text-[11px] leading-relaxed text-gray-400">
-            {IS_PUBLIC_DEPLOY
-              ? "服务器不在校园所在地，密码登录几乎一定会被学校判定为异地并弹多因子认证 —— 公网请用「导入浏览器会话」。"
-              : "密码只在本次请求里用于向学校换一次登录票据，不写文件、不进云端数据库。"}
+            密码只在本次请求里用于向学校登录，不写文件、不进数据库。
+            如果学校要求二次认证，下一步会让你填一次手机上收到的验证码。
+          </p>
+        </form>
+      ) : (
+        <form onSubmit={submitCode}>
+          <div className="rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2.5 text-xs leading-relaxed text-indigo-900">
+            学校要求二次认证（{channel}），验证码已发到{" "}
+            <b>{phone || "你绑定的手机"}</b>。看一眼手机，把数字填进来就行。
+          </div>
+
+          <label className="mt-3 block text-sm">
+            <span className="mb-1 block text-gray-600">验证码</span>
+            <input
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 8))}
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              autoFocus
+              placeholder="6 位数字"
+              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-lg tracking-[0.35em] outline-none focus:border-indigo-400"
+            />
+          </label>
+
+          <button
+            type="submit"
+            disabled={busy}
+            className="mt-4 w-full rounded-lg bg-indigo-600 py-2.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {busy ? step || "验证中…" : "验证并同步课表"}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setStage("password");
+              setMfaToken("");
+              setCode("");
+              setHint("");
+              setError("");
+            }}
+            className="mt-2 w-full rounded-lg border border-gray-200 py-2 text-xs text-gray-500 hover:border-gray-300 hover:text-gray-700"
+          >
+            没收到 / 重来一次
+          </button>
+
+          <p className="mt-3 text-[11px] leading-relaxed text-gray-400">
+            验证码 5 分钟内有效。这是学校对「没被信任过的设备」的固定要求，
+            和你在哪个网络无关。
           </p>
         </form>
       )}

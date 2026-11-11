@@ -256,13 +256,66 @@ async function follow(jar: CookieJar, start: string, max = 12, trace?: Trace) {
 }
 
 export class CasError extends Error {
-  code: "BAD_CREDENTIALS" | "NEED_CAPTCHA" | "RATE_LIMITED" | "REAUTH" | "UNKNOWN";
+  code:
+    | "BAD_CREDENTIALS"
+    | "NEED_CAPTCHA"
+    | "RATE_LIMITED"
+    | "REAUTH"
+    | "MFA_BAD"
+    | "UNKNOWN";
   constructor(code: CasError["code"], message: string) {
     super(message);
     this.code = code;
     this.name = "CasError";
   }
 }
+
+/**
+ * 二次认证（多因子）的上下文。
+ *
+ * 什么时候会走到这里：服务端每次登录都是**全新会话**，在 CAS 眼里就是
+ * 「非可信浏览器」，于是插一层多因子。这跟用户是不是在校园网毫无关系 ——
+ * 触发条件是「这台设备/这个会话没被信任过」，不是「IP 是异地」。
+ *
+ * 以前这里直接报错让用户去浏览器里操作，等于把难题推给用户。
+ * 实际上它只是一张表单：发一条短信、收一个 6 位码、提交，全部都能在服务端完成。
+ * 用户唯一要做的就是看一眼手机、把 6 位数填进来。
+ */
+export type ReAuthCtx = {
+  service: string;
+  reAuthType: string;
+  isMultifactor: string;
+  reAuthUserId: string;
+  uuid: string;
+  mfaUuid: string;
+  /** 用户友好的说明，例如「短信验证码」 */
+  what: string;
+};
+
+/** 每种二次认证方式对应的「发码接口」参数值，取自学校 reAuth.js */
+const CODE_TYPE_NAME: Record<string, string> = {
+  "3": "reAuthDynamicCodeType", // 手机短信
+  "4": "reAuthWChatDynamicCodeType", // 企业微信
+  "5": "reAuthCpdailyDynamicCodeType", // 今日校园
+  "11": "reAuthEmailDynamicCodeType", // 邮箱
+  "12": "reAuthDingTalkDynamicCodeType", // 钉钉
+  "13": "reAuthWeLinkDynamicCodeType", // WeLink
+  "15": "reAuthWeChatServiceDynamicCodeType", // 微信服务号
+};
+
+const REAUTH_TYPE_LABEL: Record<string, string> = {
+  "3": "短信验证码",
+  "4": "企业微信验证码",
+  "5": "今日校园验证码",
+  "11": "邮箱验证码",
+  "12": "钉钉验证码",
+  "13": "WeLink 验证码",
+  "15": "微信验证码",
+};
+
+export type LoginStep =
+  | { kind: "ok"; jar: CookieJar; ticket: string | null; finalUrl: string }
+  | { kind: "mfa"; jar: CookieJar; ctx: ReAuthCtx };
 
 /**
  * 打开二次认证页，判断它要求的是哪种验证。
@@ -295,6 +348,69 @@ async function describeReAuth(jar: CookieJar, url: string, trace?: Trace) {
     traceAdd(trace, `二次认证页 ${r.status} title=${title || "-"} fields=[${fields.join(",")}]`);
     traceAdd(trace, `二次认证提示：${hints.join(" / ") || "未识别"}；正文 ${text.slice(0, 120)}`);
 
+    /*
+     * 下面几行是给「能不能在服务端把短信验证走完」用的结构侦察：
+     * 只记字段名 / 类型 / 值的长度，不记任何值本身（uuid、手机号都在里面）。
+     */
+    const forms = Array.from(html.matchAll(/<form[^>]*>/gi)).map((m) => m[0].replace(/\s+/g, " "));
+    const inputs = Array.from(html.matchAll(/<input[^>]*>/gi)).map((m) => {
+      const tag = m[0];
+      const id = pick(tag, /id="([^"]*)"/);
+      const name = pick(tag, /name="([^"]*)"/);
+      const type = pick(tag, /type="([^"]*)"/) || "text";
+      const val = pick(tag, /value="([^"]*)"/);
+      return `${id || "-"}/${name || "-"}:${type}${val ? `:len${val.length}` : ""}`;
+    });
+    const selects = Array.from(html.matchAll(/<select[^>]*name="([^"]*)"[^>]*>([\s\S]*?)<\/select>/gi)).map(
+      (m) => `${m[1]}=[${Array.from(m[2].matchAll(/value="([^"]*)"/gi)).map((x) => x[1]).join("|")}]`
+    );
+    const endpoints = Array.from(
+      new Set(
+        Array.from(html.matchAll(/["']([^"']*\.(?:do|htl|json)[^"']*)["']/gi))
+          .map((m) => m[1])
+          .filter((u) => !u.startsWith("http") || u.includes("authserver"))
+      )
+    ).slice(0, 12);
+    const buttons = Array.from(html.matchAll(/<(?:button|a)[^>]*>([\s\S]*?)<\/(?:button|a)>/gi))
+      .map((m) => m[1].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim())
+      .filter((s) => s && s.length <= 20)
+      .slice(0, 14);
+
+    traceAdd(trace, `二次认证 form: ${forms.join(" || ") || "-"}`);
+    traceAdd(trace, `二次认证 input: ${inputs.join(" , ") || "-"}`);
+    if (selects.length) traceAdd(trace, `二次认证 select: ${selects.join(" , ")}`);
+    traceAdd(trace, `二次认证 接口: ${endpoints.join(" , ") || "-"}`);
+    traceAdd(trace, `二次认证 按钮: ${buttons.join(" | ") || "-"}`);
+
+    // 「信任此设备」这类选项是 radio，值本身不敏感，可以直接记
+    const radios = Array.from(html.matchAll(/<input[^>]*type="radio"[^>]*>/gi)).map((m) => {
+      const tag = m[0];
+      return `${pick(tag, /name="([^"]*)"/) || "-"}=${pick(tag, /value="([^"]*)"/) || "-"}`;
+    });
+    if (radios.length) traceAdd(trace, `二次认证 radio: ${radios.join(" , ")}`);
+
+    const scripts = Array.from(new Set(Array.from(html.matchAll(/<script[^>]+src="([^"]+)"/gi)).map((m) => m[1])));
+    traceAdd(trace, `二次认证 script: ${scripts.join(" , ") || "-"}`);
+
+    const paths = Array.from(
+      new Set(Array.from(html.matchAll(/[\w./-]*reAuthCheck[\w./-]*/gi)).map((m) => m[0]))
+    ).slice(0, 16);
+    traceAdd(trace, `二次认证 路径: ${paths.join(" , ") || "-"}`);
+
+    // 内联脚本里通常写着「验证码提交到哪个地址、带哪些参数」，截一小段看用法
+    const inline = Array.from(
+      html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)
+    )
+      .map((m) => m[1])
+      .join("\n");
+    const snips: string[] = [];
+    for (const kw of ["reAuthCheck", "dynamicCode", "otpCode", "getCode"]) {
+      const i = inline.indexOf(kw);
+      if (i >= 0) snips.push(inline.slice(Math.max(0, i - 90), i + 150).replace(/\s+/g, " "));
+      if (snips.length >= 2) break;
+    }
+    if (snips.length) traceAdd(trace, `二次认证 片段: ${snips.join(" ‖ ").slice(0, 420)}`);
+
     return { what: hints[0] || "", fields, title, status: r.status };
   } catch (e) {
     traceAdd(trace, `二次认证页打不开 ${e instanceof Error ? e.message : String(e)}`);
@@ -306,12 +422,12 @@ async function describeReAuth(jar: CookieJar, url: string, trace?: Trace) {
  * 用学号 + 密码登录 CAS，并落到 service 指定的系统。
  * 返回的 jar 里同时含 authserver 的 TGC —— 后续可用 casSsoInto 换别的系统，不必再输密码。
  */
-export async function casLogin(
+export async function casLoginStep(
   username: string,
   password: string,
   service: string,
   trace?: Trace
-) {
+): Promise<LoginStep> {
   const jar = new CookieJar();
   const loginUrl = `${CAS}/authserver/login?service=${encodeURIComponent(service)}`;
   traceAdd(trace, `service=${service}`);
@@ -349,7 +465,7 @@ export async function casLogin(
   if (needCaptcha) {
     throw new CasError(
       "NEED_CAPTCHA",
-      "这个账号需要图形验证码。先用自己的浏览器登录一次 authserver.szu.edu.cn，输入验证码后再回来"
+      "学校这次要求输入图形验证码，程序认不出图片里的字母数字。等 10 分钟再试一次就好"
     );
   }
 
@@ -394,28 +510,240 @@ export async function casLogin(
   traceAdd(trace, `拿到 ticket=${ticket ? "是" : "否"}`);
 
   /**
-   * 密码对了、CASTGC 也签发了，但 CAS 把浏览器送到了 reAuthCheck（二次认证）。
-   *
-   * 深大 CAS 在「登录地点/环境变化」时会插这一层：此时不发 ticket，
-   * 必须先完成人机确认（短信、微信、或点确认）才放行。
-   * 机器账号无法完成，所以不能当成普通失败 —— 要明确告诉用户去浏览器过一次。
+   * 密码对了、CASTGC 也签发了，但 CAS 把浏览器送到了 reAuthCheck（多因子认证）。
    *
    * 注意判据要落在「跳去的是 reAuth」，而不是「有没有 ticket」：
    * 有些版本会先给 reAuth 再给 ticket，只看 ticket 会误判。
    */
   if (/reAuthCheck|reAuthLoginView/i.test(ticketUrl)) {
-    const detail = await describeReAuth(jar, ticketUrl, trace);
-    throw new CasError(
-      "REAUTH",
-      `学校判定这次登录是「新地点 / 异常环境」，要求二次认证${detail.what ? `（${detail.what}）` : ""}。` +
-        `请用浏览器打开 authserver.szu.edu.cn 登录一次并完成验证，再回来重试`
-    );
+    const ctx = await readReAuthCtx(jar, ticketUrl, service, trace);
+    return { kind: "mfa", jar, ctx };
   }
 
   const finalUrl = await follow(jar, ticketUrl, 12, trace);
   traceAdd(trace, `最终落地 ${shortUrl(finalUrl)}`);
 
-  return { jar, ticket, finalUrl };
+  return { kind: "ok", jar, ticket, finalUrl };
+}
+
+/** 兼容旧调用：遇到多因子就直接报错（新代码应该用 casLoginStep 走验证码） */
+export async function casLogin(username: string, password: string, service: string, trace?: Trace) {
+  const step = await casLoginStep(username, password, service, trace);
+  if (step.kind === "mfa") {
+    throw new CasError(
+      "REAUTH",
+      `学校要求二次认证（${step.ctx.what}），这次登录需要输入手机收到的验证码`
+    );
+  }
+  return { jar: step.jar, ticket: step.ticket, finalUrl: step.finalUrl };
+}
+
+/** 从二次认证页读出提交验证码所需的全部参数 */
+async function readReAuthCtx(
+  jar: CookieJar,
+  url: string,
+  fallbackService: string,
+  trace?: Trace
+): Promise<ReAuthCtx> {
+  const r = await requestWith(jar, url, {}, trace);
+  const html = await r.text();
+
+  // 页面把参数放在内联脚本的 reAuthParams 里，是标准 JSON（斜杠会转义）
+  let params: Record<string, unknown> = {};
+  const m = html.match(/reAuthParams\s*=\s*(\{[\s\S]*?\})\s*;?\s*[\r\n]/);
+  if (m) {
+    try {
+      params = JSON.parse(m[1]) as Record<string, unknown>;
+    } catch {
+      /* 解析不了就退化成从隐藏字段取，不影响主流程 */
+    }
+  }
+  const str = (k: string) => (params[k] === undefined || params[k] === null ? "" : String(params[k]));
+
+  const uuid =
+    pick(html, /id="uuid"[^>]*value="([^"]*)"/) ||
+    pick(html, /name="uuid"[^>]*value="([^"]*)"/) ||
+    str("uuid");
+
+  const ctx: ReAuthCtx = {
+    service: str("service") || fallbackService,
+    reAuthType: str("reAuthType") || "3",
+    isMultifactor: str("isMultifactor") || "1",
+    reAuthUserId: str("reAuthUserId"),
+    uuid,
+    mfaUuid: pick(html, /id="mfa_uuid"[^>]*value="([^"]*)"/) || "",
+    what: REAUTH_TYPE_LABEL[str("reAuthType")] || "短信验证码",
+  };
+
+  traceAdd(
+    trace,
+    `二次认证 kind=${ctx.reAuthType}(${ctx.what}) 用户=${ctx.reAuthUserId ? "有" : "无"} ` +
+      `uuid=${ctx.uuid ? "有" : "无"} 多因子=${ctx.isMultifactor}`
+  );
+  return ctx;
+}
+
+/**
+ * 切换二次认证方式（例如从企业微信切到短信）。
+ * 学校默认给的方式不一定人人都有 —— 手机短信最保险。
+ */
+export async function switchReAuthType(
+  jar: CookieJar,
+  ctx: ReAuthCtx,
+  target: string,
+  trace?: Trace
+) {
+  const url = `${CAS}/authserver/reAuthCheck/changeReAuthType.do`;
+  const r = await requestWith(
+    jar,
+    url,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "X-Requested-With": "XMLHttpRequest",
+        Referer: `${CAS}/authserver/reAuthCheck/reAuthLoginView.do`,
+        Origin: CAS,
+      },
+      body: new URLSearchParams({
+        isMultifactor: ctx.isMultifactor,
+        reAuthType: target,
+        service: ctx.service,
+      }).toString(),
+    },
+    trace
+  );
+
+  let data: Record<string, unknown> = {};
+  try {
+    data = JSON.parse(await r.text()) as Record<string, unknown>;
+  } catch {
+    /* 失败就按原方式继续 */
+  }
+  const payload = (data.data ?? {}) as Record<string, unknown>;
+  const now = String(payload.reAuthType ?? "");
+  const ok = Number(data.code) === 1 && now === target;
+  traceAdd(trace, `切换认证方式 → ${target} ${ok ? "成功" : "失败（沿用原方式）"}`);
+  if (ok) {
+    ctx.reAuthType = now;
+    ctx.what = REAUTH_TYPE_LABEL[now] || ctx.what;
+  }
+  return ok;
+}
+
+/**
+ * 让学校把验证码发到用户手机上。
+ * 返回手机号掩码，用来告诉用户「发到 135****6343 了」。
+ */
+export async function sendReAuthCode(jar: CookieJar, ctx: ReAuthCtx, trace?: Trace) {
+  const url = `${CAS}/authserver/dynamicCode/getDynamicCodeByReauth.do`;
+  const body = new URLSearchParams({
+    userName: ctx.reAuthUserId,
+    authCodeTypeName: CODE_TYPE_NAME[ctx.reAuthType] || CODE_TYPE_NAME["3"],
+  });
+
+  const r = await requestWith(
+    jar,
+    url,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "X-Requested-With": "XMLHttpRequest",
+        Referer: `${CAS}/authserver/reAuthCheck/reAuthLoginView.do`,
+        Origin: CAS,
+      },
+      body: body.toString(),
+    },
+    trace
+  );
+
+  const text = await r.text();
+  let data: Record<string, unknown> = {};
+  try {
+    data = JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    /* 非 JSON 说明接口变了，下面按失败处理 */
+  }
+
+  const res = String(data.res ?? "");
+  const ok = /success/i.test(res);
+  const mobile = String(data.mobile ?? "");
+  traceAdd(trace, `发验证码 ${ok ? "成功" : "失败"} res=${res || "-"} 手机=${mobile ? "有" : "-"}`);
+
+  return {
+    ok,
+    mobile,
+    message: String(data.returnMessage ?? "") || (ok ? "" : "验证码没能发出来，稍等一下再试"),
+  };
+}
+
+/**
+ * 提交验证码，成功后顺带把 service 的 ticket 换回来并落地。
+ * 这一步走通，就等于「用户亲手完成了一次多因子认证」。
+ */
+export async function submitReAuthCode(
+  jar: CookieJar,
+  ctx: ReAuthCtx,
+  code: string,
+  trace?: Trace
+) {
+  const url = `${CAS}/authserver/reAuthCheck/reAuthSubmit.do`;
+  const body = new URLSearchParams({
+    service: ctx.service,
+    reAuthType: ctx.reAuthType,
+    isMultifactor: ctx.isMultifactor,
+    password: "",
+    dynamicCode: code,
+    uuid: ctx.uuid,
+    answer1: "",
+    answer2: "",
+    otpCode: "",
+  });
+
+  const r = await requestWith(
+    jar,
+    url,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "X-Requested-With": "XMLHttpRequest",
+        Referer: `${CAS}/authserver/reAuthCheck/reAuthLoginView.do`,
+        Origin: CAS,
+      },
+      body: body.toString(),
+    },
+    trace
+  );
+
+  const text = await r.text();
+  let data: Record<string, unknown> = {};
+  try {
+    data = JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    throw new CasError("UNKNOWN", "二次认证返回了无法识别的内容，请稍后重试");
+  }
+
+  const code_ = String(data.code ?? "");
+  if (/reAuth_failed|reAuth_unauthorized/i.test(code_)) {
+    throw new CasError("MFA_BAD", String(data.msg ?? "") || "验证码不对或已过期，请重新输入");
+  }
+
+  // 认证通过后 CAS 才会放 ticket，必须再走一次 login
+  const loginUrl = `${CAS}/authserver/login?service=${encodeURIComponent(ctx.service)}`;
+  const lr = await requestWith(jar, loginUrl, {}, trace);
+  const location = lr.headers.get("location");
+  if (!location) throw new CasError("UNKNOWN", "二次认证通过了，但学校没有返回跳转地址");
+
+  const ticketUrl = new URL(location, CAS).toString();
+  const ticket = new URL(ticketUrl).searchParams.get("ticket");
+  traceAdd(trace, `二次认证后 ticket=${ticket ? "是" : "否"}`);
+
+  const finalUrl = await follow(jar, ticketUrl, 12, trace);
+  traceAdd(trace, `最终落地 ${shortUrl(finalUrl)}`);
+
+  return { ticket, finalUrl, jar };
 }
 
 /**
