@@ -1,6 +1,7 @@
 import type { CalEvent, Checkin, Ddl, EventKind } from "./types";
 import type { MyEvent, PersonalItem, TimetableSession } from "./local-store";
 import { boardGroup, boardNoticeId, inferBoardSubtype, readBoardMetadata } from "./board-taxonomy.mjs";
+import { noticeKindOf } from "./notice-kind.mjs";
 import { hasExplicitClock } from "./deadline.mjs";
 import officialGroups from "../data/board/official-groups.json";
 
@@ -60,6 +61,15 @@ export interface AgendaEvent {
    * other=别的学院的通知（不进任何分类，仅「全部」可见）
    */
   category?: "course" | "homework" | "campus" | "personal" | "other";
+  /**
+   * 通知的内容类型，由 lib/notice-kind.mjs 判定：
+   * linghang 领航讲座 / aid 奖助 / opportunity 机会 / lecture 讲座
+   * publicity 公示 / admin 事务 / other 其他
+   *
+   * 只对公共通知有意义。它回答的是「这条内容值不值得占用注意力」，
+   * 与 category 的「是不是发给我的」是两个正交的维度。
+   */
+  noticeKind?: string;
 }
 
 const KIND_LABEL: Record<EventKind, string> = {
@@ -129,6 +139,8 @@ export function mapCalEvent(event: CalEvent, ctx: MapContext = {}): AgendaEvent 
     source: event.scope === "personal" ? undefined : KIND_LABEL[event.kind],
     boardGroup: group?.id,
     boardSubtype: subtype,
+    // 内容类型只看标题：正文噪声太大，会把「球场暂停使用」误判成「可报名」
+    noticeKind: type === "notice" ? noticeKindOf(event.title) : undefined,
     note: board ? board.note : event.note,
     link: event.link,
     allDay: event.allDay,

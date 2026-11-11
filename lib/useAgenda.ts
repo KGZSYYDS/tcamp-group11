@@ -245,6 +245,38 @@ export function useAgenda(session: SzUser | null): AgendaState {
   };
 }
 
+/**
+ * 现在是学年的第几年。
+ *
+ * 年级字段的写法不统一：可能是「大一」「2026」「2026级」。
+ * 学年的分界放在 9 月：8 月还属于上一学年，9 月才算新学年开始。
+ * 解析不出来返回 null —— 调用方据此保守处理（当作「不确定」）。
+ */
+export function gradeYear(grade: string | undefined, now = new Date()): number | null {
+  const g = String(grade ?? "").normalize("NFKC").replace(/\s+/g, "");
+  if (!g) return null;
+
+  const cn = /^大([一二三四五])$/.exec(g)?.[1];
+  if (cn) return "一二三四五".indexOf(cn);
+
+  const digits = /^(?:20)?(\d{2})(?:级)?$/.exec(g);
+  if (!digits) return null;
+  const enrollment = 2000 + Number(digits[1]);
+  const month = now.getMonth() + 1;
+  // 9 月之后算新学年：2026 年 9 月入学的人在 2026-09 是第 1 年
+  const academic = month < 9 ? now.getFullYear() - 1 : now.getFullYear();
+  const year = academic - enrollment + 1;
+  return year >= 1 && year <= 8 ? year : null;
+}
+
+/** 大一的判断只用于「领航讲座」默认开不开：那是学分要求，大二之后基本刷够了 */
+export function isFreshman(profile: Profile | null): boolean {
+  if (!profile) return false;
+  // 研究生不涉及本科的领航讲座学分
+  if (profile.level && profile.level !== "undergraduate") return false;
+  return gradeYear(profile.grade) === 1;
+}
+
 /** 计算画像匹配结果和同一天内的排序分数。 */
 export function scoreAgenda(
   events: AgendaEvent[],

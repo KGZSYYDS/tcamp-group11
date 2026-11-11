@@ -16,14 +16,13 @@ import {
 } from "lucide-react";
 import type { AgendaEvent } from "@/lib/agenda";
 import { dateKey } from "@/lib/agenda";
-import { scoreAgenda, isRelatedEvent, groupByDate, useAgenda } from "@/lib/useAgenda";
+import { scoreAgenda, isRelatedEvent, groupByDate, isFreshman, useAgenda } from "@/lib/useAgenda";
 import type { SzUser } from "@/lib/szu-types";
 import ClockFace, { EventRow } from "./calendar/ClockFace";
 import { MonthView } from "./calendar/MonthWeekView";
 import TimelineView from "./calendar/TimelineView";
 import EventDialog from "./calendar/EventDialog";
 import type { DialogState, EventFormData } from "./calendar/EventDialog";
-import { CampusFilterButton, CampusFilterDialog } from "./calendar/CampusFilter";
 import { RippleButton } from "./calendar/ui/RippleButton";
 import Dock from "./calendar/ui/Dock";
 import "./calendar/ui/Dock.css";
@@ -43,51 +42,170 @@ const VIEWS: { id: ViewId; label: string; icon: typeof Clock3 }[] = [
 /**
  * 筛选维度。
  *
- * 以前直接拿 `visual` 当筛选条件，但云端通知的 visual 一律是 notice ——
- * 于是「校园」里混着全校、本学院、别的学院三类东西，「个人」则永远是空的。
- * 画像算了半天（lib/categorize.mjs 的 category）却没人用，等于没生效。
+ * 两条正交的轴，不要混在一起：
  *
- * 现在按「这条内容对我意味着什么」来分：本学院的进「个人」，明确写了别学院的
- * 单独进「其他院」，剩下才是「校园」。这样勾掉「其他院」就是真的忽略它们。
+ * ① **内容类型**（这条值不值得占用注意力）
+ *    公文通一天能进 50 条，绝大多数是答辩公告、名单公示、会议新闻、学术讲座。
+ *    它们确实「发给全校」，但对学生没有可执行的动作 —— 这些默认不显示。
+ *    只有「能办事」的默认显示：教务（选课/停课/考试，错过要出事）、
+ *    领航讲座学分、奖助申请、实习竞赛招募。
+ *
+ *    例外是「有人需要有人不需要」的那几类（讲座、公示、事务）：
+ *    它们不属于噪音，只是不该默认占位 —— 单独成类、默认关闭，
+ *    用户要的时候一键打开，而不是每次刷新都重新关一遍。
+ *
+ * ② **受众匹配**（这条是不是给我的）
+ *    由「仅看相关」承担，看画像里的学院与培养层次，见 lib/relevance.mjs。
+ *    以前把这一条当成唯一标准，所以 45 条噪音全都「相关」。
+ *
+ * 默认原则：宁可少显示。用户需要时会自己把某一类打开，
+ * 而不是让用户每天先筛掉 40 条才看见作业。
  */
-type Bucket = "course" | "homework" | "campus" | "personal" | "other" | "imported";
+type Bucket =
+  | "course"
+  | "homework"
+  | "academic"
+  | "personal"
+  | "linghang"
+  | "aid"
+  | "opportunity"
+  | "lecture"
+  | "publicity"
+  | "admin"
+  | "misc"
+  | "imported";
 
 const BUCKET_META: Record<Bucket, { name: string; color: string; dark: string; bg: string; hint?: string }> = {
   course: { name: "课程", color: "var(--course)", dark: "var(--course-ink)", bg: "var(--course-bg)" },
   homework: { name: "作业", color: "var(--ddl)", dark: "var(--ddl-ink)", bg: "var(--ddl-bg)" },
-  campus: { name: "校园", color: "var(--notice)", dark: "var(--notice-ink)", bg: "var(--notice-bg)", hint: "面向全校的通知" },
+  academic: {
+    name: "教务",
+    color: "var(--notice)",
+    dark: "#6b4a9e",
+    bg: "#f1ebfa",
+    hint: "选课、调课停课、考试、体测、四六级、学籍与缴费——错过要出事的硬通知",
+  },
   personal: {
-    name: "个人",
+    name: "我的",
     color: "var(--personal)",
     dark: "var(--personal-ink)",
     bg: "var(--personal-bg)",
-    hint: "标题指向你所在学院的通知，按画像判定",
+    hint: "你自己添加的日程与待办",
   },
-  other: {
-    name: "其他院",
-    color: "var(--other)",
+  linghang: {
+    name: "领航讲座",
+    color: "var(--notice)",
+    dark: "#2f7d5d",
+    bg: "#e9f6ef",
+    hint: "创新领航系列讲座，本科有学分要求，默认对大一显示",
+  },
+  aid: {
+    name: "奖助",
+    color: "var(--notice)",
+    dark: "#a2601f",
+    bg: "#fdf3e3",
+    hint: "奖学金、助学金、助学贷款与各类资助",
+  },
+  opportunity: {
+    name: "机会",
+    color: "var(--notice)",
+    dark: "#2f5f9e",
+    bg: "#eaf1fb",
+    hint: "实习、就业、招聘、竞赛、招募与参访",
+  },
+  lecture: {
+    name: "讲座",
+    color: "var(--notice)",
+    dark: "var(--notice-ink)",
+    bg: "var(--notice-bg)",
+    hint: "学术讲座、论坛、报告会（纯资讯，默认不显示）",
+  },
+  publicity: {
+    name: "公示",
+    color: "var(--notice)",
     dark: "var(--other-ink)",
     bg: "var(--other-bg)",
-    hint: "明确写了别的学院，默认不参与「仅看相关」",
+    hint: "名单公示、评审结果、获奖公布（默认不显示）",
+  },
+  admin: {
+    name: "事务",
+    color: "var(--notice)",
+    dark: "#5c6478",
+    bg: "#eef0f4",
+    hint: "会议新闻、教师人事、项目申报、答辩公告、后勤通知（默认不显示）",
+  },
+  misc: {
+    name: "其他",
+    color: "var(--notice)",
+    dark: "#6b7280",
+    bg: "#f1f2f5",
+    hint: "没识别出内容类型的通知（默认不显示）",
   },
   imported: { name: "导入", color: "var(--imported)", dark: "var(--imported-ink)", bg: "var(--imported-bg)" },
 };
 
-const BUCKETS: Bucket[] = ["course", "homework", "campus", "personal", "other", "imported"];
+/**
+ * 按钮顺序 = 重要程度。默认开着的排前面。
+ * 后面四类（讲座/公示/事务/其他）是「需要时才打开」的抽屉。
+ */
+const BUCKETS: Bucket[] = [
+  "course",
+  "homework",
+  "academic",
+  "personal",
+  "linghang",
+  "aid",
+  "opportunity",
+  "lecture",
+  "publicity",
+  "admin",
+  "misc",
+  "imported",
+];
 
-/** 视图事件 → 筛选桶。本地数据按 visual 直判，云端通知按画像算出的 category 拆 */
+/** 不管画像是谁都默认打开：课程、作业、教务、自己的日程 */
+const ALWAYS_ON: Bucket[] = ["course", "homework", "academic", "personal", "imported"];
+
+/**
+ * 按画像算默认打开哪些。
+ *
+ * 领航讲座是本科新生的学分要求，大二之后大部分人已经刷够，
+ * 所以只有大一默认打开，其他人需要自己开。
+ */
+function defaultBuckets(freshman: boolean): Bucket[] {
+  const on: Bucket[] = [...ALWAYS_ON];
+  if (freshman) on.push("linghang");
+  on.push("aid", "opportunity");
+  return on;
+}
+
+/** 视图事件 → 筛选桶：先看是不是本机数据，再看通知的内容类型 */
 function bucketOf(event: AgendaEvent): Bucket {
   if (event.visual === "imported") return "imported";
   if (event.visual === "course") return "course";
   if (event.visual === "ddl") return "homework";
   if (event.visual === "personal") return "personal";
-  if (event.category === "personal") return "personal";
-  if (event.category === "other") return "other";
-  return "campus";
+
+  // 公共通知按内容类型分。没判出来的一律进 misc（默认关），
+  // 不能默认塞进「课程」这种高优先级桶里蹭曝光。
+  const kind = event.noticeKind;
+  if (kind === "linghang" || kind === "aid" || kind === "opportunity" || kind === "academic" ||
+      kind === "lecture" || kind === "publicity" || kind === "admin") {
+    return kind;
+  }
+  return "misc";
 }
 
 const HIDDEN_KEY = "szu-cal-hidden";
-const CAMPUS_FILTER_KEY = "szu-cal-campus-filter:v1";
+/**
+ * 分类偏好的存储版本。
+ *
+ * 每次改动「有哪些分类」都要升版本：老版本存的是旧分类集合，
+ * 里面没有新加的类（比如教务），沿用会让老用户永远看不到它。
+ * 升版本 = 丢掉旧偏好、按新规则重算一次默认值，代价只是用户重新挑一次。
+ */
+const BUCKETS_KEY = "szu-cal-buckets:v3";
+const ONLY_RELATED_TIP_KEY = "szu-cal-onlyrelated-tip:v1";
 
 function personalEventKey(event: AgendaEvent) {
   return event.preferenceKey || event.id;
@@ -121,10 +239,17 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
   const [view, setView] = useState<ViewId>("month");
   const [quickSwitch, setQuickSwitch] = useState(false);
   const [selected, setSelected] = useState<Date>(startOfToday);
-  const [enabled, setEnabled] = useState<Bucket[]>([...BUCKETS]);
+  /**
+   * 先按「什么都没打开」渲染，等画像到了再套默认值。
+   *
+   * 为什么不直接 useState(defaultBuckets(false))：profile 是异步来的，
+   * 用初值会先闪一版「领航讲座关着」，大一用户看到的就是错的。
+   * 而空数组只是一瞬间的加载态，不会误导。
+   */
+  const [enabled, setEnabled] = useState<Bucket[]>([]);
   const [onlyRelated, setOnlyRelated] = useState(true);
-  const [campusFilterOpen, setCampusFilterOpen] = useState(false);
-  const [campusOff, setCampusOff] = useState<string[]>([]);
+  /** 「仅看相关」被关掉时的解释条，只在第一次关闭时出现 */
+  const [relatedTip, setRelatedTip] = useState("");
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
   const personalStorageKey = `szu-cal-personal:v1:${session?.studentId || "guest"}`;
   const [personal, setPersonal] = useState<{ storageKey: string; ids: string[] }>({ storageKey: "", ids: [] });
@@ -144,8 +269,6 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
   // 本地偏好放在挂载后读取，避免服务端渲染时访问 localStorage
   useEffect(() => {
     setHiddenIds(readJson<string[]>(HIDDEN_KEY, []));
-    const saved = readJson<unknown>(CAMPUS_FILTER_KEY, []);
-    if (Array.isArray(saved)) setCampusOff(saved.filter((key): key is string => typeof key === "string"));
   }, []);
 
   useEffect(() => {
@@ -168,6 +291,41 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
     return () => clearTimeout(timer);
   }, [toast]);
 
+  // 解释条比 toast 留得久一点：它讲的是「为什么少显示了东西」，需要读完
+  useEffect(() => {
+    if (!relatedTip) return;
+    const timer = setTimeout(() => setRelatedTip(""), 9000);
+    return () => clearTimeout(timer);
+  }, [relatedTip]);
+
+  /**
+   * 画像是谁，只需要一个布尔值来决定「领航讲座」开不开。
+   *
+   * 单独提出来做依赖：直接依赖 profile 对象会随课表/通知刷新而变身份，
+   * 导致下面的 effect 反复 setState。
+   */
+  const freshman = isFreshman(profile);
+
+  /**
+   * 画像到位后算默认值。
+   *
+   * 判断依据是「本地有没有存过用户自己挑的分类」：
+   * - 存过 → 一律以存下来的为准，绝不覆盖用户的选择；
+   * - 没存过 → 按当前画像重算，所以云端画像比首帧晚到也能纠正过来
+   *   （否则大一用户的「领航讲座」会一直是关的）。
+   */
+  useEffect(() => {
+    const saved = readJson<unknown>(BUCKETS_KEY, null);
+    if (Array.isArray(saved)) {
+      const known = saved.filter((id): id is Bucket => (BUCKETS as string[]).includes(id as string));
+      if (known.length) {
+        setEnabled(known);
+        return;
+      }
+    }
+    setEnabled(defaultBuckets(freshman));
+  }, [freshman, session?.studentId]);
+
   const displayEvents = useMemo(() => {
     if (personal.storageKey !== personalStorageKey || !personal.ids.length) return events;
     const moved = new Set(personal.ids);
@@ -178,17 +336,15 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
     );
   }, [events, personal, personalStorageKey]);
 
-  /** 打分 + 细分栏目过滤后的全集。筛选按钮要显示各类条数，所以单独留一层 */
+  /**
+   * 打分后的全集。分类按钮要显示各类条数，所以单独留一层。
+   *
+   * 这里不做任何「隐藏」判断 —— 隐藏只发生在 filteredEvents。
+   * 否则按钮上的数字会变成 0，用户就不知道被藏了多少条。
+   */
   const scoredEvents = useMemo(
-    () =>
-      scoreAgenda(displayEvents, profile, hiddenIds).filter(
-        (event) =>
-          event.visual !== "notice" ||
-          !event.boardGroup ||
-          (!campusOff.includes(event.boardGroup) &&
-            (!event.boardSubtype || !campusOff.includes(`${event.boardGroup}:${event.boardSubtype}`)))
-      ),
-    [displayEvents, profile, hiddenIds, campusOff]
+    () => scoreAgenda(displayEvents, profile, hiddenIds),
+    [displayEvents, profile, hiddenIds]
   );
 
   const filteredEvents = useMemo(
@@ -210,6 +366,55 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
   const unrelatedCount = filteredEvents.length - relatedEvents.length;
   const visibleEvents = onlyRelated ? relatedEvents : filteredEvents;
   const hasImported = scoredEvents.some((event) => event.visual === "imported");
+
+  /** 被折叠起来（没勾选）的条数：告诉用户「还有多少没显示」，而不是假装世界上只有这些 */
+  const foldedCount = useMemo(
+    () => scoredEvents.filter((event) => !enabled.includes(bucketOf(event))).length,
+    [scoredEvents, enabled]
+  );
+
+  /**
+   * 勾选/取消某一类。
+   *
+   * 顺手做成「至少留一个」：全关掉会看到空白页，用户以为坏了。
+   */
+  function toggleBucket(id: Bucket) {
+    setEnabled((prev) => {
+      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+      if (!next.length) return prev;
+      try {
+        localStorage.setItem(BUCKETS_KEY, JSON.stringify(next));
+      } catch {
+        /* 存不了就只影响这次，不打断操作 */
+      }
+      return next;
+    });
+  }
+
+  /**
+   * 关掉「仅看相关」时说实话：接下来看到的会多出很多与你无关的通知。
+   *
+   * 只在第一次关的时候提示一次，之后不再打扰。
+   * 措辞刻意把「默认开着更好」讲出来 —— 但决定权留给用户。
+   */
+  function toggleOnlyRelated() {
+    const next = !onlyRelated;
+    setOnlyRelated(next);
+    if (next) {
+      // 开回来就把话收走：否则「关→开→再关」会看到上一次没消散的旧提示
+      setRelatedTip("");
+      return;
+    }
+    try {
+      if (localStorage.getItem(ONLY_RELATED_TIP_KEY)) return;
+      localStorage.setItem(ONLY_RELATED_TIP_KEY, "1");
+    } catch {
+      /* 存不了就每次都提示，不算错 */
+    }
+    setRelatedTip(
+      "已关闭「仅看相关」：接下来会看到所有信息，包括别的学院、别的培养层次和你无关的通知。平时开着更清爽——保持默认就不用管它，需要找东西时再关。"
+    );
+  }
 
   const byDay = useMemo(() => groupByDate(visibleEvents), [visibleEvents]);
   const eventsFor = useMemo(
@@ -243,15 +448,6 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
       return;
     }
     setSelected(addDays(selected, delta * 1));
-  }
-
-  function toggleFilter(id: Bucket) {
-    setEnabled((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  }
-
-  function saveCampusFilters(next: string[]) {
-    setCampusOff(next);
-    try { localStorage.setItem(CAMPUS_FILTER_KEY, JSON.stringify(next)); } catch { /* Session still works. */ }
   }
 
   function togglePersonal(event: AgendaEvent) {
@@ -328,7 +524,7 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
   }
 
   // 键盘 1—3 切视图，/ 打开搜索
-  const dialogOpen = Boolean(dialog) || campusFilterOpen;
+  const dialogOpen = Boolean(dialog);
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const target = e.target as HTMLElement | null;
@@ -378,35 +574,30 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
         </div>
 
         <div className="filter-group">
-          {BUCKETS.filter((id) => id !== "imported" || hasImported).map((id) =>
-            id === "campus" ? (
-              <CampusFilterButton
-                key={id}
-                enabled={enabled.includes(id)}
-                count={bucketCounts.get(id) || 0}
-                onToggle={() => toggleFilter(id)}
-                onOpen={() => setCampusFilterOpen(true)}
-              />
-            ) : (
-              <button
-                key={id}
-                type="button"
-                aria-pressed={enabled.includes(id)}
-                title={BUCKET_META[id].hint}
-                onClick={() => toggleFilter(id)}
-              >
-                <i style={{ background: BUCKET_META[id].dark }} />
-                {BUCKET_META[id].name}
-                <span className="bucket-count">{bucketCounts.get(id) || 0}</span>
-              </button>
-            )
-          )}
+          {BUCKETS.filter((id) => id !== "imported" || hasImported).map((id) => (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={enabled.includes(id)}
+              title={BUCKET_META[id].hint}
+              data-folded={!enabled.includes(id) ? "true" : undefined}
+              onClick={() => toggleBucket(id)}
+            >
+              <i style={{ background: BUCKET_META[id].dark }} />
+              {BUCKET_META[id].name}
+              <span className="bucket-count">{bucketCounts.get(id) || 0}</span>
+            </button>
+          ))}
           <button
             type="button"
             className="filter-toggle"
             aria-pressed={onlyRelated}
-            title={onlyRelated ? `已按画像过滤 ${unrelatedCount} 条日程，点击查看全部` : "优先按学院筛选，本科大四可见答辩"}
-            onClick={() => setOnlyRelated((v) => !v)}
+            title={
+              onlyRelated
+                ? `只显示与你相关的（已过滤 ${unrelatedCount} 条别的学院/层次的），点击可查看全部`
+                : "当前显示全部通知，包括与你无关的"
+            }
+            onClick={toggleOnlyRelated}
           >
             <SlidersHorizontal size={15} />
             {onlyRelated ? "仅看相关" : "全部"}
@@ -418,6 +609,18 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
             </button>
           ) : null}
         </div>
+
+        {/* 折叠说明：把「为什么少了这么多」讲清楚，而不是让用户以为数据没同步 */}
+        {foldedCount > 0 || relatedTip ? (
+          <p className="filter-note">
+            {relatedTip ? <strong>{relatedTip}</strong> : null}
+            {foldedCount > 0 ? (
+              <span>
+                另有 {foldedCount} 条讲座、公示、事务与其他通知未显示（默认只留能办事的）。点上面的分类可展开。
+              </span>
+            ) : null}
+          </p>
+        ) : null}
       </div>
 
       {view === "clock" ? (
@@ -614,13 +817,6 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
         onSelect={(event) => open({ kind: "detail", event })}
         submitting={submitting}
         error={formError}
-      />
-      <CampusFilterDialog
-        open={campusFilterOpen}
-        off={campusOff}
-        onToggle={(key) => saveCampusFilters(campusOff.includes(key) ? campusOff.filter((item) => item !== key) : [...campusOff, key])}
-        onReset={() => saveCampusFilters([])}
-        onClose={() => setCampusFilterOpen(false)}
       />
 
       <AnimatePresence>
