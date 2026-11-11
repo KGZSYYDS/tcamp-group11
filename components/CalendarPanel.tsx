@@ -635,6 +635,7 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
             <div className="clock-bubble">
               <ClockFace
                 instant={quickSwitch}
+                isActive={view === "clock"}
                 events={todayEvents}
                 selected={selected}
                 onSelect={(event) => open({ kind: "detail", event })}
