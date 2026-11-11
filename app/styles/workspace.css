@@ -42,19 +42,36 @@ input:focus,textarea:focus,select:focus { outline:2px solid var(--brand); outlin
 @keyframes button-ripple { from { transform:scale(0); opacity:.3; } to { transform:scale(1); opacity:0; } }
 .calendar-app { height:100%; min-height:0; display:flex; flex-direction:column; padding:0; width:100%; max-width:none; margin:0; --ink:var(--text); --muted:var(--secondary); --line:var(--edge); --white:var(--surface); --deep:var(--brand); --radius:20px; }
 .calendar-app .date-controls { gap:12px; margin:0 0 12px; padding:0; flex-shrink:0; flex-wrap:wrap; }
-.calendar-app .date-navigation { gap:5px; }
+.calendar-app .date-navigation { gap:5px; width:100%; }
 .calendar-app .date-navigation h2 { font-size:16px; min-width:106px; white-space:nowrap; }
 .calendar-app .date-navigation .icon-button,.calendar-app .today-button { min-width:34px; height:34px; min-height:34px; border-radius:9px; }
 .calendar-app .date-navigation .nav-action { margin-left:3px; }
 .calendar-app .today-button { margin-left:6px; background:var(--surface); padding:5px 12px; color:var(--text); }
-.calendar-app .filter-group { display:flex; gap:6px; flex-wrap:wrap; min-width:0; }
-.calendar-app .filter-group>button:not(.icon-button) { padding:7px 10px; min-height:34px; font-size:11px; white-space:nowrap; flex-shrink:0; border-radius:9px; background:var(--surface); border:1px solid var(--edge); color:var(--text); }
-.calendar-app .filter-group i { flex-shrink:0; }
-.calendar-app .filter-group button[aria-pressed=false] { opacity:.55; }
-/* 每类条数：让「画像到底有没有生效」变成一眼能看出的数字，而不是玄学 */
-.calendar-app .filter-group .bucket-count { margin-left:5px; font-variant-numeric:tabular-nums; font-size:10px; color:var(--secondary); opacity:.85; }
-.calendar-app .filter-group button[aria-pressed=true] .bucket-count { color:inherit; opacity:.7; }
-.calendar-app .related-filter-count { color:var(--brand); font-variant-numeric:tabular-nums; }
+.calendar-app .calendar-filter-trigger {
+  display:inline-flex; align-items:center; justify-content:center; gap:6px;
+  margin-inline-start:auto; min-height:36px; padding:0 12px; flex-shrink:0;
+  border:1px solid var(--edge); border-radius:9px; background:var(--surface);
+  color:var(--text); font-size:13px; font-weight:650; white-space:nowrap;
+}
+.calendar-app .calendar-filter-trigger[aria-expanded=true] { color:var(--brand); background:var(--brand-soft); }
+.calendar-app .dialog.calendar-filter-dialog { width:min(460px,calc(100% - 28px)); padding:0; }
+.calendar-filter-body { display:grid; gap:12px; padding:16px; }
+.calendar-filter-body header,.calendar-filter-body footer { display:flex; align-items:center; gap:8px; }
+.calendar-filter-body header { justify-content:space-between; }
+.calendar-app .calendar-filter-body h2 { margin:0; font-size:18px; }
+.calendar-app .calendar-filter-body header .icon-button { width:44px; height:44px; }
+.calendar-filter-body footer { flex-wrap:wrap; padding-top:10px; border-top:1px solid var(--edge); }
+.calendar-filter-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+.calendar-app .calendar-filter-choice {
+  display:flex; align-items:center; gap:6px; min-height:44px; padding:6px 9px;
+  border:1px solid var(--edge); border-radius:9px; background:var(--surface);
+  color:var(--secondary); text-align:left; font-size:13px; white-space:nowrap;
+}
+.calendar-app .calendar-filter-choice[aria-pressed=true] {
+  background:var(--brand-soft); color:var(--text); border-color:var(--brand); font-weight:650;
+}
+.calendar-filter-choice i { display:grid; place-items:center; width:15px; height:15px; border-radius:50%; color:white; flex:none; }
+.calendar-filter-choice span { margin-inline-start:auto; color:var(--secondary); font-size:11px; font-variant-numeric:tabular-nums; }
 .calendar-app .campus-filter-trigger { display:inline-flex; min-height:34px; border:1px solid var(--edge); border-radius:9px; background:var(--surface); }
 .calendar-app .campus-filter-trigger button { display:flex; align-items:center; justify-content:center; gap:5px; padding:0 7px; white-space:nowrap; font-size:11px; }
 .calendar-app .campus-filter-trigger button:first-child i { width:7px; height:7px; border-radius:50%; background:var(--notice-ink); }
@@ -207,7 +224,7 @@ input:focus,textarea:focus,select:focus { outline:2px solid var(--brand); outlin
 .app-content .bg-indigo-50 { background:var(--brand-soft); }
 @media (hover:hover) { .calendar-app .event-row:hover { background:var(--surface-soft); }.calendar-app .icon-button:hover { background:var(--brand-soft); }.calendar-app .course-block:hover { z-index:2; filter:brightness(1.05); }.app-nav>button:not([aria-current]):hover { background:var(--surface-soft); } }
 @media (min-width:900px) and (max-height:800px) { .orbit-dial { width:min(100%,300px); }.calendar-app .orbit-card { padding-top:12px; }.orbit-time { font-size:34px; }.orbit-center>span { font-size:9px; } }
-@media (max-width:1000px) { .app-shell { padding:10px 16px 6px; gap:10px; }.app-header p { display:none; }.app-nav>button { padding:9px 12px; }.calendar-app .month-card { grid-template-columns:minmax(0,1fr) 240px; }.calendar-app .date-controls { gap:8px; }.calendar-app .filter-group { gap:4px; }.calendar-app .filter-group>button:not(.icon-button) { padding:7px; } }
+@media (max-width:1000px) { .app-shell { padding:10px 16px 6px; gap:10px; }.app-header p { display:none; }.app-nav>button { padding:9px 12px; }.calendar-app .month-card { grid-template-columns:minmax(0,1fr) 240px; }.calendar-app .date-controls { gap:8px; } }
 @media (max-width:700px) {
   .calendar-app .campus-filter-trigger { min-height:32px; }
   .calendar-app .campus-filter-trigger button { padding:0 5px; font-size:10px; }
@@ -220,8 +237,9 @@ input:focus,textarea:focus,select:focus { outline:2px solid var(--brand); outlin
   .app-nav>button { overflow:hidden; text-overflow:ellipsis; }
   .app-nav .nav-badge { position:absolute; top:2px; right:2px; font-size:8px; min-width:0; margin:0; }
   .calendar-app .date-controls { display:flex; flex-direction:column; align-items:stretch; gap:6px; margin-bottom:8px; }
-  .calendar-app .date-navigation { justify-content:flex-start; width:100%; }.calendar-app .date-navigation h2 { min-width:100px; font-size:14px; }.calendar-app .date-navigation .nav-action { margin-left:auto; }.calendar-app .date-navigation .add-quick { margin-left:2px; }
-  .calendar-app .filter-group { display:flex; gap:4px; width:100%; }.calendar-app .filter-group>button:not(.icon-button) { min-height:32px; padding:5px 8px; font-size:10px; gap:5px; }.calendar-app .filter-group .filter-toggle { margin-left:auto; }
+  .calendar-app .date-navigation { justify-content:flex-start; width:100%; }.calendar-app .date-navigation h2 { min-width:0; font-size:14px; }.calendar-app .date-navigation .nav-action { margin-left:auto; }.calendar-app .date-navigation .add-quick { margin-left:2px; }
+  .calendar-app .calendar-filter-trigger { min-height:44px; padding:0 8px; }
+  .calendar-filter-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .calendar-app .week-ribbon { margin-bottom:8px; }.calendar-app .week-ribbon strong { font-size:14px; }.calendar-app .week-ribbon button>span { font-size:9px; }
   .calendar-app .view-container { overflow:auto; scrollbar-width:thin; }
   .calendar-app .clock-bubble { height:auto; min-height:100%; display:flex; flex-direction:column; border-radius:15px; }
@@ -276,7 +294,7 @@ input:focus,textarea:focus,select:focus { outline:2px solid var(--brand); outlin
 .calendar-app .view-dock .dock-face { gap:7px; }
 .calendar-app .view-dock .dock-name { font-size:13px; line-height:18px; font-weight:600; }
 .calendar-app .pill { background:var(--brand-soft); color:var(--brand); }
-@media(max-width:360px) { .calendar-app .date-navigation h2 { min-width:80px; }.calendar-app .date-navigation { gap:3px; }.calendar-app .today-button { margin-left:2px; padding:5px 8px; }.calendar-app .filter-group>button:not(.icon-button) { padding:5px 6px; } }
+@media(max-width:360px) { .calendar-app .date-navigation { gap:3px; }.calendar-app .today-button { margin-left:2px; padding:5px 8px; }.calendar-app .calendar-filter-trigger { min-width:44px; }.calendar-filter-trigger span { display:none; } }
 @media(max-width:700px) { .login-shell { padding-top:16px; padding-bottom:16px; }.login-brand { margin-bottom:16px; }.login-brand>div:first-child { width:44px; height:44px; margin-bottom:8px; }.login-brand h1 { font-size:26px; }.login-brand p { font-size:12px; margin-top:6px; }.login-brand>div:last-child { display:none; }.login-shell>.bg-white { padding:20px; }.login-shell>div:last-child a { font-size:12px; } }
 
 /* === 懒加载 view-slot：只显示当前视图，已挂载的保留状态但不占空间 === */

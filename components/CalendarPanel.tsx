@@ -13,6 +13,7 @@ import {
   Plus,
   Search,
   SlidersHorizontal,
+  X,
 } from "lucide-react";
 import type { AgendaEvent } from "@/lib/agenda";
 import { dateKey } from "@/lib/agenda";
@@ -75,7 +76,7 @@ type Bucket =
   | "misc"
   | "imported";
 
-const BUCKET_META: Record<Bucket, { name: string; color: string; dark: string; bg: string; hint?: string }> = {
+const BUCKET_META: Record<Bucket, { name: string; color: string; dark: string; bg: string }> = {
   course: { name: "课程", color: "var(--course)", dark: "var(--course-ink)", bg: "var(--course-bg)" },
   homework: { name: "作业", color: "var(--ddl)", dark: "var(--ddl-ink)", bg: "var(--ddl-bg)" },
   academic: {
@@ -83,63 +84,54 @@ const BUCKET_META: Record<Bucket, { name: string; color: string; dark: string; b
     color: "var(--notice)",
     dark: "#6b4a9e",
     bg: "#f1ebfa",
-    hint: "选课、调课停课、考试、体测、四六级、学籍与缴费——错过要出事的硬通知",
   },
   personal: {
     name: "我的",
     color: "var(--personal)",
     dark: "var(--personal-ink)",
     bg: "var(--personal-bg)",
-    hint: "你自己添加的日程与待办",
   },
   linghang: {
     name: "领航讲座",
     color: "var(--notice)",
     dark: "#2f7d5d",
     bg: "#e9f6ef",
-    hint: "创新领航系列讲座，本科有学分要求，默认对大一显示",
   },
   aid: {
     name: "奖助",
     color: "var(--notice)",
     dark: "#a2601f",
     bg: "#fdf3e3",
-    hint: "奖学金、助学金、助学贷款与各类资助",
   },
   opportunity: {
     name: "机会",
     color: "var(--notice)",
     dark: "#2f5f9e",
     bg: "#eaf1fb",
-    hint: "实习、就业、招聘、竞赛、招募与参访",
   },
   lecture: {
     name: "讲座",
     color: "var(--notice)",
     dark: "var(--notice-ink)",
     bg: "var(--notice-bg)",
-    hint: "学术讲座、论坛、报告会（纯资讯，默认不显示）",
   },
   publicity: {
     name: "公示",
     color: "var(--notice)",
     dark: "var(--other-ink)",
     bg: "var(--other-bg)",
-    hint: "名单公示、评审结果、获奖公布（默认不显示）",
   },
   admin: {
     name: "事务",
     color: "var(--notice)",
     dark: "#5c6478",
     bg: "#eef0f4",
-    hint: "会议新闻、教师人事、项目申报、答辩公告、后勤通知（默认不显示）",
   },
   misc: {
     name: "其他",
     color: "var(--notice)",
     dark: "#6b7280",
     bg: "#f1f2f5",
-    hint: "没识别出内容类型的通知（默认不显示）",
   },
   imported: { name: "导入", color: "var(--imported)", dark: "var(--imported-ink)", bg: "var(--imported-bg)" },
 };
@@ -205,7 +197,6 @@ const HIDDEN_KEY = "szu-cal-hidden";
  * 升版本 = 丢掉旧偏好、按新规则重算一次默认值，代价只是用户重新挑一次。
  */
 const BUCKETS_KEY = "szu-cal-buckets:v3";
-const ONLY_RELATED_TIP_KEY = "szu-cal-onlyrelated-tip:v1";
 
 function personalEventKey(event: AgendaEvent) {
   return event.preferenceKey || event.id;
@@ -248,8 +239,8 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
    */
   const [enabled, setEnabled] = useState<Bucket[]>([]);
   const [onlyRelated, setOnlyRelated] = useState(true);
-  /** 「仅看相关」被关掉时的解释条，只在第一次关闭时出现 */
-  const [relatedTip, setRelatedTip] = useState("");
+  const [filterOpen, setFilterOpen] = useState(false);
+  const filterDialog = useRef<HTMLDialogElement>(null);
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
   const personalStorageKey = `szu-cal-personal:v1:${session?.studentId || "guest"}`;
   const [personal, setPersonal] = useState<{ storageKey: string; ids: string[] }>({ storageKey: "", ids: [] });
@@ -290,13 +281,6 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
     const timer = setTimeout(() => setToast(""), 3000);
     return () => clearTimeout(timer);
   }, [toast]);
-
-  // 解释条比 toast 留得久一点：它讲的是「为什么少显示了东西」，需要读完
-  useEffect(() => {
-    if (!relatedTip) return;
-    const timer = setTimeout(() => setRelatedTip(""), 9000);
-    return () => clearTimeout(timer);
-  }, [relatedTip]);
 
   /**
    * 画像是谁，只需要一个布尔值来决定「领航讲座」开不开。
@@ -367,12 +351,6 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
   const visibleEvents = onlyRelated ? relatedEvents : filteredEvents;
   const hasImported = scoredEvents.some((event) => event.visual === "imported");
 
-  /** 被折叠起来（没勾选）的条数：告诉用户「还有多少没显示」，而不是假装世界上只有这些 */
-  const foldedCount = useMemo(
-    () => scoredEvents.filter((event) => !enabled.includes(bucketOf(event))).length,
-    [scoredEvents, enabled]
-  );
-
   /**
    * 勾选/取消某一类。
    *
@@ -389,31 +367,6 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
       }
       return next;
     });
-  }
-
-  /**
-   * 关掉「仅看相关」时说实话：接下来看到的会多出很多与你无关的通知。
-   *
-   * 只在第一次关的时候提示一次，之后不再打扰。
-   * 措辞刻意把「默认开着更好」讲出来 —— 但决定权留给用户。
-   */
-  function toggleOnlyRelated() {
-    const next = !onlyRelated;
-    setOnlyRelated(next);
-    if (next) {
-      // 开回来就把话收走：否则「关→开→再关」会看到上一次没消散的旧提示
-      setRelatedTip("");
-      return;
-    }
-    try {
-      if (localStorage.getItem(ONLY_RELATED_TIP_KEY)) return;
-      localStorage.setItem(ONLY_RELATED_TIP_KEY, "1");
-    } catch {
-      /* 存不了就每次都提示，不算错 */
-    }
-    setRelatedTip(
-      "已关闭「仅看相关」：接下来会看到所有信息，包括别的学院、别的培养层次和你无关的通知。平时开着更清爽——保持默认就不用管它，需要找东西时再关。"
-    );
   }
 
   const byDay = useMemo(() => groupByDate(visibleEvents), [visibleEvents]);
@@ -524,7 +477,7 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
   }
 
   // 键盘 1—3 切视图，/ 打开搜索
-  const dialogOpen = Boolean(dialog);
+  const dialogOpen = Boolean(dialog) || filterOpen;
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const target = e.target as HTMLElement | null;
@@ -543,8 +496,8 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
 
   const dateLabel =
     view === "month"
-      ? `${selected.getMonth() + 1} 月`
-      : `${selected.getMonth() + 1} 月 ${selected.getDate()} 日`;
+      ? `${selected.getMonth() + 1}月`
+      : `${selected.getMonth() + 1}月${selected.getDate()}日`;
 
   return (
     <div className="calendar-app" data-view={view}>
@@ -571,57 +524,72 @@ export default function CalendarPanel({ session }: { session: SzUser | null }) {
           >
             <Plus size={18} />
           </RippleButton>
-        </div>
-
-        <div className="filter-group">
-          {BUCKETS.filter((id) => id !== "imported" || hasImported).map((id) => (
-            <button
-              key={id}
-              type="button"
-              aria-pressed={enabled.includes(id)}
-              title={BUCKET_META[id].hint}
-              data-folded={!enabled.includes(id) ? "true" : undefined}
-              onClick={() => toggleBucket(id)}
-            >
-              <i style={{ background: BUCKET_META[id].dark }} />
-              {BUCKET_META[id].name}
-              <span className="bucket-count">{bucketCounts.get(id) || 0}</span>
-            </button>
-          ))}
           <button
             type="button"
-            className="filter-toggle"
-            aria-pressed={onlyRelated}
-            title={
-              onlyRelated
-                ? `只显示与你相关的（已过滤 ${unrelatedCount} 条别的学院/层次的），点击可查看全部`
-                : "当前显示全部通知，包括与你无关的"
-            }
-            onClick={toggleOnlyRelated}
+            className="calendar-filter-trigger"
+            aria-label="筛选"
+            aria-haspopup="dialog"
+            aria-expanded={filterOpen}
+            aria-controls="calendar-filter-panel"
+            onClick={() => {
+              filterDialog.current?.showModal();
+              setFilterOpen(true);
+            }}
           >
-            <SlidersHorizontal size={15} />
-            {onlyRelated ? "仅看相关" : "全部"}
-            {onlyRelated && unrelatedCount > 0 ? <span className="related-filter-count">{unrelatedCount}</span> : null}
+            <SlidersHorizontal size={16} aria-hidden="true" />
+            <span>筛选</span>
           </button>
-          {hiddenIds.length > 0 ? (
-            <button type="button" className="unhide-button" onClick={unhideAll}>
-              已隐藏 {hiddenIds.length} 条 · 恢复
-            </button>
-          ) : null}
         </div>
-
-        {/* 折叠说明：把「为什么少了这么多」讲清楚，而不是让用户以为数据没同步 */}
-        {foldedCount > 0 || relatedTip ? (
-          <p className="filter-note">
-            {relatedTip ? <strong>{relatedTip}</strong> : null}
-            {foldedCount > 0 ? (
-              <span>
-                另有 {foldedCount} 条讲座、公示、事务与其他通知未显示（默认只留能办事的）。点上面的分类可展开。
-              </span>
-            ) : null}
-          </p>
-        ) : null}
       </div>
+
+      <dialog
+        ref={filterDialog}
+        id="calendar-filter-panel"
+        className="dialog calendar-filter-dialog"
+        aria-labelledby="calendar-filter-heading"
+        onClose={() => setFilterOpen(false)}
+        onClick={(event) => {
+          if (event.target === event.currentTarget) event.currentTarget.close();
+        }}
+      >
+        <div className="calendar-filter-body">
+          <header>
+            <h2 id="calendar-filter-heading">筛选</h2>
+            <button type="button" className="icon-button" aria-label="关闭筛选" onClick={() => filterDialog.current?.close()}>
+              <X size={18} aria-hidden="true" />
+            </button>
+          </header>
+          <div className="calendar-filter-grid">
+            {BUCKETS.filter((id) => id !== "imported" || hasImported).map((id) => (
+              <button
+                key={id}
+                type="button"
+                className="calendar-filter-choice"
+                aria-pressed={enabled.includes(id)}
+                onClick={() => toggleBucket(id)}
+              >
+                <i style={{ background: BUCKET_META[id].dark }} aria-hidden="true">
+                  {enabled.includes(id) ? <Check size={11} strokeWidth={3} /> : null}
+                </i>
+                {BUCKET_META[id].name}
+                <span>{bucketCounts.get(id) || 0}</span>
+              </button>
+            ))}
+          </div>
+          <footer>
+            <button type="button" className="calendar-filter-choice" aria-pressed={onlyRelated} onClick={() => setOnlyRelated((value) => !value)}>
+              <SlidersHorizontal size={15} aria-hidden="true" />
+              仅看相关
+              {onlyRelated && unrelatedCount > 0 ? <span>{unrelatedCount}</span> : null}
+            </button>
+            {hiddenIds.length > 0 ? (
+              <button type="button" className="calendar-filter-choice" onClick={unhideAll}>
+                恢复已隐藏的 {hiddenIds.length} 条
+              </button>
+            ) : null}
+          </footer>
+        </div>
+      </dialog>
 
       {view === "clock" ? (
         <div className="week-ribbon">
