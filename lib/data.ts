@@ -86,7 +86,14 @@ async function fetchEventsViaApi(): Promise<CalEvent[] | null> {
       cache: "default",
     });
     if (!res.ok) return null;
-    const body = (await res.json()) as { events?: CalEvent[] };
+    const body = (await res.json()) as { events?: CalEvent[]; error?: string };
+    /**
+     * 接口在云库不可用时会回 200 + `events: []` + `error`，这是刻意的（避免 500 让
+     * 调用方多走一次错误分支）。但**不能把这种空数组当成「真的没有通知」**：
+     * 那样就永远不会退回下面直连云库的那条路，用户看到的是「一条都没有」且没有任何
+     * 错误提示 —— 分不清是网络坏了还是学校没发通知。带 error 就当作这一层失败。
+     */
+    if (body.error) return null;
     return Array.isArray(body.events) ? body.events : null;
   } catch {
     return null;
