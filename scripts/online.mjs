@@ -14,19 +14,60 @@
  */
 import { spawn } from "node:child_process";
 import { writeFileSync, existsSync } from "node:fs";
+import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const NODE = process.execPath;
-const PORT = Number(process.env.PORT || 3000);
 const CLOUDFLARED = process.env.CLOUDFLARED || path.join(process.env.USERPROFILE || "", "bin", "cloudflared.exe");
+
+/** 端口空着吗 */
+function free(port) {
+  return new Promise((resolve) => {
+    const s = net.createServer();
+    s.once("error", () => resolve(false));
+    s.once("listening", () => s.close(() => resolve(true)));
+    s.listen(port, "127.0.0.1");
+  });
+}
+
+/**
+ * 3000 被占（比如上次的窗口没关干净）就往后找。
+ * 直接报错让用户去杀进程，对不懂命令行的人太不友好。
+ */
+async function pickPort() {
+  const want = Number(process.env.PORT || 3000);
+  for (let p = want; p < want + 20; p++) {
+    if (await free(p)) return p;
+  }
+  return null;
+}
+
+const PORT = await pickPort();
+if (!PORT) {
+  console.log("3000 附近 20 个端口都被占用了，可能上次的窗口还开着。");
+  console.log("把之前那个黑色窗口关掉，再重新运行。");
+  process.exit(1);
+}
 
 const log = (...a) => console.log(...a);
 
+/**
+ * 没有构建产物就自己构建一次。
+ * 「请先运行 npm run build:online」这种提示，对不懂命令行的人等于卡死。
+ */
 if (!existsSync(path.join(ROOT, ".next", "BUILD_ID"))) {
-  log("还没构建过。先跑一次：npm run build:online");
-  process.exit(1);
+  log("第一次启动，正在打包（大概一两分钟，别关窗口）…\n");
+  const code = await new Promise((resolve) => {
+    const b = spawn(NODE, [path.join(ROOT, "scripts", "build-online.mjs")], { cwd: ROOT, stdio: "inherit" });
+    b.on("exit", resolve);
+  });
+  if (code !== 0) {
+    log("\n打包没成功，把上面的报错截图发给开发者。");
+    process.exit(1);
+  }
+  log("\n打包完成。\n");
 }
 if (!existsSync(CLOUDFLARED)) {
   log("找不到 cloudflared：" + CLOUDFLARED);
