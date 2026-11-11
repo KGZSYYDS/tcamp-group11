@@ -33,6 +33,11 @@ function assertAffected(data: any[] | null) {
  *
  * TTL 取 5 分钟：通知不是秒级数据，没必要每分钟全量重拉。
  * 需要最新数据时传 `force`（面板刷新按钮走这条路）。
+ *
+ * **过期后不阻塞**：全表 404 行实测 1.6–3.1 秒（281KB，不走 order 更快）。
+ * 如果 TTL 一到就让第一个访客同步等这三秒，每 5 分钟就有一个人看到「加载中…」
+ * —— 同事说的「等一会就行」就是这个。所以过期时先把手上的旧数据交出去、
+ * 后台悄悄换新（stale-while-revalidate），把这几秒从用户身上摘掉。
  */
 const EVENTS_TTL = 5 * 60_000;
 
@@ -66,6 +71,29 @@ function publishEvents(rows: CalEvent[]) {
     }
   }
 }
+
+/**
+ * 后台换新：不 await、不抛给调用方。
+ *
+ * 失败时也要把计时推后，否则每个请求都会再撞一次云库（拉一次两三秒，
+ * 等于把一次冷启动变成连续冷启动）。推后 5 分钟后自然重试。
+ */
+function refreshInBackground() {
+  if (eventsInflight) return;
+  eventsInflight = fetchEvents()
+    .then((rows) => {
+      publishEvents(rows);
+      return rows;
+    })
+    .catch(() => {
+      eventsCachedAt = Date.now();
+      return eventsCache ?? [];
+    })
+    .finally(() => {
+      eventsInflight = null;
+    });
+}
+
 
 /**
  * 浏览器侧走本服务的 /api/events。
@@ -152,6 +180,11 @@ async function fetchEvents(): Promise<CalEvent[]> {
  * 个人数据本来就不该进这张表，这里是不让历史脏数据继续外泄的第二道闸。
  *
  * 多次调用共享同一份缓存与同一个在途请求，见上面的 EVENTS_TTL。
+ *
+ * 三档行为：
+ *   新鲜（< TTL）→ 直接返回，0ms
+ *   过期但手上还有旧数据 → **立刻返回旧数据**，后台换新（`force` 除外）
+ *   完全没有数据（进程刚起）→ 只能等，这是唯一必须阻塞的情况
  */
 export async function listEvents(options?: { force?: boolean }): Promise<CalEvent[]> {
   const force = Boolean(options?.force);
@@ -159,6 +192,13 @@ export async function listEvents(options?: { force?: boolean }): Promise<CalEven
     return eventsCache;
   }
   if (eventsInflight) return eventsInflight;
+
+  // 过期但有旧数据：先给旧数据，别让访客为这次刷新等两三秒。
+  // force 是「刷新」按钮，用户明确要最新的，那就该等。
+  if (!force && eventsCache) {
+    refreshInBackground();
+    return eventsCache;
+  }
 
   eventsInflight = fetchEvents()
     .then((rows) => {

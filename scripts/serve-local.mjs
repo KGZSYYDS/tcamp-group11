@@ -96,6 +96,39 @@ let stopping = false;
 let restarts = 0;
 
 /**
+ * 预热公共通知缓存。
+ *
+ * 全表 404 行要 1.6–3.1 秒。进程刚起时缓存是空的，第一个访客就得替所有人
+ * 等这三秒（同事说的「等一会才行」）。启动后自己先拉一次，让缓存热起来，
+ * 之后所有人都是几十毫秒。
+ *
+ * 失败了不影响服务：那只是让第一个访客多等一下，不该拦住启动。
+ */
+async function warmup() {
+  const deadline = Date.now() + 60_000;
+  while (!stopping && Date.now() < deadline) {
+    try {
+      const r = await fetch(`http://127.0.0.1:${PORT}/api/events`, {
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (r.ok) {
+        const body = await r.json();
+        if (Array.isArray(body.events) && body.events.length) {
+          log(`预热完成：公共通知 ${body.events.length} 条已进缓存。`);
+          return;
+        }
+        if (body.error) {
+          log(`预热未成功（云库：${body.error}），稍后重试。`);
+        }
+      }
+    } catch {
+      /* 服务还没起来，继续等 */
+    }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+}
+
+/**
  * 起 next start 并盯着它。
  * 用固定端口 + 只监听 127.0.0.1：公网流量由 Tailscale 从本机回环转发进来，
  * 不需要把 3000 暴露到局域网。
@@ -139,6 +172,7 @@ function startNext() {
 
 log(`启动本地服务：http://127.0.0.1:${PORT}`);
 startNext();
+void warmup();
 
 const bye = () => {
   stopping = true;
