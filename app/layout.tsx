@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "@fontsource-variable/manrope";
+import ServiceWorkerBoot from "@/components/ServiceWorkerBoot";
 import "./globals.css";
 import "./styles/calendar.css";
 import "./styles/workspace.css";
@@ -16,7 +17,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="zh-CN">
-      <body>{children}</body>
+      <body>
+        {children}
+        <ServiceWorkerBoot />
+      </body>
     </html>
   );
 }

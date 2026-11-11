@@ -161,14 +161,62 @@ function startNext() {
     child = null;
     if (stopping) return;
     restarts++;
-    // 连续崩溃时退避，避免疯狂重起耗 CPU；上限 60 秒
-    const wait = Math.min(3000 * Math.min(restarts, 20), 60000);
+    /**
+     * 重启要「第一次几乎立刻、后面才退避」。
+     *
+     * next 子进程偶尔会以 code 4294967295（-1）退出，原因不明但不影响重启。
+     * 原来的首次等待是 3 秒，加上 next 自己的启动时间，公网会连续 4 秒左右全是 502
+     * ——在别人眼里就是「链接挂了」。第一次改成 600ms，只有连续崩溃才逐级退避。
+     */
+    const wait = restarts === 1 ? 600 : Math.min(1500 * Math.min(restarts - 1, 20), 30000);
     log(`[next] 退出了（code ${code}, signal ${signal}），${wait / 1000}s 后重启（第 ${restarts} 次）`);
     setTimeout(() => {
       if (!stopping) startNext();
     }, wait);
   });
 }
+
+/**
+ * 看门狗：进程还在、但服务已经不响应的情况。
+ *
+ * `child.on("exit")` 只能兜住「进程死了」。真正难查的是「进程活着但卡死」——
+ * 事件循环被堵、内存爆掉之前的长 GC、还是单纯 hang 住。这时端口还连着，
+ * Tailscale 转发进来也拿不到响应，用户看到一直转圈，而重启逻辑完全不会触发。
+ *
+ * 每 20 秒自己打一次首页（3 秒超时），连续 3 次失败就杀掉子进程，
+ * 让上面的 exit 处理器把它拉起来。宁可重启一次，也不要让访客一直卡着。
+ */
+const WATCH_INTERVAL = 20_000;
+const WATCH_MAX_FAIL = 3;
+let watchFails = 0;
+
+async function watch() {
+  if (stopping || !child) return;
+  let ok = false;
+  try {
+    const r = await fetch(`http://127.0.0.1:${PORT}/`, { signal: AbortSignal.timeout(3000) });
+    ok = r.status < 500;
+  } catch {
+    ok = false;
+  }
+  if (ok) {
+    watchFails = 0;
+    return;
+  }
+  watchFails++;
+  log(`看门狗：首页连续 ${watchFails} 次无响应（/ ${WATCH_MAX_FAIL}）`);
+  if (watchFails >= WATCH_MAX_FAIL) {
+    watchFails = 0;
+    log("看门狗：判定服务卡死，杀掉子进程等待重启。");
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      /* 已经退出就不用管 */
+    }
+  }
+}
+
+setInterval(watch, WATCH_INTERVAL);
 
 log(`启动本地服务：http://127.0.0.1:${PORT}`);
 startNext();

@@ -104,9 +104,9 @@ function refreshInBackground() {
  *
  * 返回 null 表示这一层不可用（本地直接起静态服务器、接口 404 等），调用方退回直连。
  */
-async function fetchEventsViaApi(): Promise<CalEvent[] | null> {
+async function fetchEventsViaApiOnce(): Promise<CalEvent[] | null> {
   const timeout = new AbortController();
-  const timer = setTimeout(() => timeout.abort(), 8_000);
+  const timer = setTimeout(() => timeout.abort(), 5_000);
   try {
     const res = await fetch("/api/events", {
       signal: timeout.signal,
@@ -128,6 +128,23 @@ async function fetchEventsViaApi(): Promise<CalEvent[] | null> {
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * 取公共通知，带一次重试。
+ *
+ * 公网入口在东京，链路上有丢包：实测单次请求偶发超时。不重试的代价很大——
+ * 这一层（5 秒）失败后会退到「浏览器直连云库」那条路（12 秒），两条都赶上坏运气
+ * 就是接近 20 秒白屏，然后显示一条通知都没有。重试一次只要几百毫秒，
+ * 却能把「偶发丢包」和「真的打不开」区分开。
+ *
+ * 重试只针对网络层失败。接口带 `error` 说明云库那边不可用，再打也是一样的结果。
+ */
+async function fetchEventsViaApi(): Promise<CalEvent[] | null> {
+  const first = await fetchEventsViaApiOnce();
+  if (first) return first;
+  await new Promise((r) => setTimeout(r, 400));
+  return fetchEventsViaApiOnce();
 }
 
 async function fetchEvents(): Promise<CalEvent[]> {
