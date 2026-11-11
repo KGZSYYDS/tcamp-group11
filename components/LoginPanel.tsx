@@ -253,8 +253,13 @@ export default function LoginPanel({ onLoggedIn }: Props) {
       ) : (
         <form onSubmit={submitCode}>
           <div className="rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2.5 text-xs leading-relaxed text-indigo-900">
-            学校要求二次认证（{channel}），验证码已发到{" "}
-            <b>{phone || "你绑定的手机"}</b>。看一眼手机，把数字填进来就行。
+            {/**
+             * 用服务端返回的原话。它知道验证码实际走的是哪条渠道
+             * （短信 / 企业微信 / 今日校园），而这里如果硬写「看一眼手机」，
+             * 渠道不是短信时会把人指到错误的地方去等。
+             */}
+            {hint ||
+              `学校要求二次认证（${channel}），验证码已发到 ${phone || "你绑定的手机"}，把数字填进来就好。`}
           </div>
 
           <label className="mt-3 block text-sm">
@@ -300,7 +305,7 @@ export default function LoginPanel({ onLoggedIn }: Props) {
       )}
 
       {error && <p className="mt-3 text-xs text-red-500">{error}</p>}
-      {hint && <p className="mt-2 text-xs text-amber-600">{hint}</p>}
+      {hint && stage !== "code" && <p className="mt-2 text-xs text-amber-600">{hint}</p>}
 
       {diag.length > 0 && (
         <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-2">

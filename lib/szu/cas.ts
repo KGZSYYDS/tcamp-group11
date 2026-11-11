@@ -636,10 +636,19 @@ export async function switchReAuthType(
  * 返回手机号掩码，用来告诉用户「发到 135****6343 了」。
  */
 export async function sendReAuthCode(jar: CookieJar, ctx: ReAuthCtx, trace?: Trace) {
+  const codeType = CODE_TYPE_NAME[ctx.reAuthType];
+  if (!codeType || !ctx.reAuthUserId) {
+    traceAdd(trace, "发验证码失败：认证渠道或用户标识缺失");
+    return {
+      ok: false,
+      mobile: "",
+      message: "学校返回的认证渠道或用户标识不完整，无法确认发码，请重新登录",
+    };
+  }
   const url = `${CAS}/authserver/dynamicCode/getDynamicCodeByReauth.do`;
   const body = new URLSearchParams({
     userName: ctx.reAuthUserId,
-    authCodeTypeName: CODE_TYPE_NAME[ctx.reAuthType] || CODE_TYPE_NAME["3"],
+    authCodeTypeName: codeType,
   });
 
   const r = await requestWith(
@@ -667,7 +676,7 @@ export async function sendReAuthCode(jar: CookieJar, ctx: ReAuthCtx, trace?: Tra
   }
 
   const res = String(data.res ?? "");
-  const ok = /success/i.test(res);
+  const ok = r.ok && res.trim().toLowerCase() === "success";
   const mobile = String(data.mobile ?? "");
   traceAdd(trace, `发验证码 ${ok ? "成功" : "失败"} res=${res || "-"} 手机=${mobile ? "有" : "-"}`);
 

@@ -91,23 +91,54 @@ export async function POST(req: Request) {
      * 用户只需要看一眼手机，把 6 位数字填进来。
      */
     if (step.kind === "mfa") {
-      // 学校默认可能给企业微信/今日校园，不是人人都有；先切到短信，切不动就沿用原方式
+      /**
+       * 学校默认可能给企业微信/今日校园，不是人人都有，所以先试着切到短信。
+       *
+       * 但**切换可能失败**（学校没给这个账号开短信、或者接口变了），失败时
+       * 学校会沿用原来的渠道发码。原来的写法不看切换结果，于是界面上一律显示
+       * 「验证码已发到 你绑定的手机」，用户盯着短信箱等 —— 实际上码在企业微信里。
+       * 这是「发了但收不到」最常见的一种，所以下面要按**真实生效的渠道**说话。
+       */
+      let switched = true;
       if (step.ctx.reAuthType !== "3") {
-        await switchReAuthType(step.jar, step.ctx, "3", trace);
+        switched = await switchReAuthType(step.jar, step.ctx, "3", trace);
       }
+      const isSms = step.ctx.reAuthType === "3";
+
       const sent = await sendReAuthCode(step.jar, step.ctx, trace);
       if (!sent.ok) {
         return fail(502, sent.message || "验证码没能发出来，请稍后重试", "MFA_SEND", { trace });
       }
+
       const mfaToken = putMfa(owner, step.jar, step.ctx, studentId);
-      const where = sent.mobile || (step.ctx.reAuthType === "3" ? "你绑定的手机" : step.ctx.what);
+
+      /**
+       * 告诉用户「去哪儿收」，而且只说真的那一个地方：
+       *   短信  → 手机号掩码（学校没回号码就退成「绑定的手机」，并提示可能没绑）
+       *   非短信 → 直接点名 App，别再说「手机」
+       */
+      let message: string;
+      if (isSms) {
+        const to = sent.mobile || "你绑定统一认证的手机";
+        message = sent.mobile
+          ? `验证码已通过短信发到 ${to}，把 6 位数字填进来就好`
+          : `学校已受理发码，但没回传手机号。如果短信一直不来，可能是统一认证里没绑手机 —— 去 https://authserver.szu.edu.cn 用「忘记密码」查一下绑定情况`;
+      } else {
+        message = `学校这个账号没开通短信验证码，验证码发到了「${step.ctx.what}」。请打开${step.ctx.what.replace(
+          "验证码",
+          ""
+        )}查看，而不是等短信`;
+      }
+
       return NextResponse.json({
         ok: false,
         needMfa: true,
         mfaToken,
         phone: sent.mobile,
         channel: step.ctx.what,
-        message: `验证码已发到 ${where}，把数字填进来就好`,
+        channelType: step.ctx.reAuthType,
+        smsSwitched: switched && isSms,
+        message,
       });
     }
 
