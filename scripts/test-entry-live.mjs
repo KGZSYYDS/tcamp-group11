@@ -43,9 +43,23 @@ try {
   const payload = await events.json();
   assert.ok(Array.isArray(payload.events), "/api/events must return an events array");
 
-  // 通知列表允许 60 秒内复用，第二次必须命中云端缓存。
+  // 通知列表允许 5 分钟内复用，第二次必须命中入口缓存。
   const again = await request(base + "/api/events", { headers: { "Accept-Encoding": "gzip" } });
   assert.equal(again.headers.get("x-szu-cache"), "HIT");
 
-  console.log("Live proxy passed: identical homepage, POST validation, session cookie, static assets, content-length, gzip and entry cache. No school credentials used.");
+  // 缓存里存的是压缩内容，客户端不声明 gzip 时必须解压后再给，
+  // 否则对方拿到的是一包解不开的字节。
+  const plain = await request(base + "/api/events", { headers: { "Accept-Encoding": "identity" } });
+  assert.equal(plain.status, 200);
+  assert.equal(plain.headers.get("content-encoding"), null, "identity client must not receive gzip bytes");
+  assert.ok(Array.isArray((await plain.json()).events));
+
+  // 诊断接口：只报抓取耗时，不含 cookie 或响应体。
+  const stats = await request(base + "/__entry-stats");
+  assert.equal(stats.status, 200);
+  const info = await stats.json();
+  assert.ok(Array.isArray(info.fetches) && info.fetches.length > 0, "stats must record upstream fetches");
+  assert.ok(!JSON.stringify(info).includes("cookie"), "stats must not leak cookies");
+
+  console.log("Live proxy passed: identical homepage, POST validation, session cookie, static assets, content-length, gzip (both directions), entry cache and stats. No school credentials used.");
 } finally { child.kill(); }

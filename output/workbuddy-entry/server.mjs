@@ -1,6 +1,6 @@
 import http from "node:http";
 import https from "node:https";
-import { gzipSync } from "node:zlib";
+import { gzipSync, gunzipSync } from "node:zlib";
 
 /**
  * 云端轻量转发入口。
@@ -63,6 +63,7 @@ function requestUpstream(req, body) {
     delete headers.expect;
     if (body) headers["content-length"] = String(body.length);
 
+    const startedAt = Date.now();
     const request = https.request({
       protocol: UPSTREAM.protocol,
       hostname: UPSTREAM.hostname,
@@ -84,12 +85,15 @@ function requestUpstream(req, body) {
           reject(Object.assign(new Error("body-too-large"), { partial: Buffer.concat(chunks) }));
         }
       });
-      response.on("end", () => resolve({
-        status: response.statusCode || 502,
-        headers: response.headers,
-        rawHeaders: response.rawHeaders,
-        body: Buffer.concat(chunks),
-      }));
+      response.on("end", () => {
+        noteFetch(req, startedAt, size, response.statusCode, response.headers["content-encoding"]);
+        resolve({
+          status: response.statusCode || 502,
+          headers: response.headers,
+          rawHeaders: response.rawHeaders,
+          body: Buffer.concat(chunks),
+        });
+      });
       response.on("error", reject);
     });
 
@@ -110,13 +114,32 @@ function collectBody(req) {
   });
 }
 
-const CACHE_TTL_MS = 60_000;
-const CACHE_STALE_MS = 15 * 60_000;
+const CACHE_TTL_MS = 300_000;
+const CACHE_STALE_MS = 60 * 60_000;
+const REFRESH_INTERVAL_MS = 240_000;
 const cache = new Map(); // key -> { at, status, headers, body }
-const inflight = new Set();
+const inflight = new Map(); // key -> Promise，同一路径同时只拉一次
+const stats = { fetches: [], warmupFailures: [], startedAt: new Date().toISOString() };
 
 function cacheKey(req) {
   return `${req.method} ${req.url}`;
+}
+
+/**
+ * 记录最近若干次上游抓取的耗时与字节数。
+ * 这段跨境链路有多慢只能从云端实例自己看，本地探测（走内网直达）没有参考价值。
+ * 只保存路径、耗时、大小，不含 cookie 与响应体。
+ */
+function noteFetch(req, startedAt, bytes, status, encoding) {
+  stats.fetches.push({
+    at: new Date().toISOString(),
+    path: req.url,
+    ms: Date.now() - startedAt,
+    bytes,
+    status,
+    encoding: encoding || "identity",
+  });
+  if (stats.fetches.length > 40) stats.fetches.shift();
 }
 
 /**
@@ -146,13 +169,33 @@ function fromCache(req) {
 
 function refreshInBackground(req) {
   const key = cacheKey(req);
-  if (inflight.has(key)) return;
-  inflight.add(key);
+  const running = inflight.get(key);
+  if (running) return running;
   const pseudo = { method: req.method, url: req.url, headers: { ...req.headers, "accept-encoding": "gzip" } };
-  requestUpstream(pseudo, null)
-    .then((upstream) => remember(pseudo, upstream))
-    .catch((error) => console.error("Background refresh failed:", error?.code || error?.message, req.url))
+  const task = requestUpstream(pseudo, null)
+    .then((upstream) => {
+      remember(pseudo, upstream);
+      return upstream;
+    })
+    .catch((error) => {
+      console.error("Background refresh failed:", error?.code || error?.message, req.url);
+      return null;
+    })
     .finally(() => inflight.delete(key));
+  inflight.set(key, task);
+  return task;
+}
+
+/**
+ * 定时刷新通知列表：宁可每 4 分钟在后台安静拉一次，也不要让访客撞上
+ * 「缓存刚过期 + 跨境拉 454KB」那一下。上游已压缩，单次只需一百多 KB。
+ */
+function startRefresher() {
+  const tick = () => {
+    const pseudo = { method: "GET", url: "/api/events", headers: { "accept-encoding": "gzip" } };
+    refreshInBackground(pseudo);
+  };
+  setInterval(tick, REFRESH_INTERVAL_MS).unref();
 }
 
 function remember(req, entry) {
@@ -173,13 +216,26 @@ function send(res, { status, headers, body }, req, cacheState) {
   else delete outgoing["set-cookie"];
 
   let payload = body;
-  const alreadyEncoded = Boolean(outgoing["content-encoding"]);
+  const encoding = String(outgoing["content-encoding"] || "").toLowerCase();
   const compressible = /json|javascript|text|xml|css|svg/.test(String(outgoing["content-type"] || ""));
-  if (!alreadyEncoded && compressible && payload.length > 1024 && wantsGzip(req)) {
+  const clientTakesGzip = wantsGzip(req);
+
+  if (encoding === "gzip" && !clientTakesGzip) {
+    // 缓存里留的是压缩过的内容，客户端不接受 gzip 时必须解压后再给，
+    // 否则对方拿到的是一包无法解码的字节。
+    try {
+      payload = gunzipSync(payload);
+      delete outgoing["content-encoding"];
+    } catch {
+      // 解不开就原样放过：宁可让上游内容照旧，也不要回 500。
+    }
+  } else if (!encoding && compressible && payload.length > 1024 && clientTakesGzip) {
     payload = gzipSync(payload);
     outgoing["content-encoding"] = "gzip";
-    outgoing.vary = "Accept-Encoding";
   }
+
+  if (!outgoing["content-encoding"]) delete outgoing["content-encoding"];
+  outgoing.vary = "Accept-Encoding";
   outgoing["content-length"] = String(payload.length);
   delete outgoing["transfer-encoding"];
   outgoing["x-szu-entry"] = "home-funnel-v2";
@@ -203,8 +259,28 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // 诊断用：只看入口自己的抓取耗时与缓存状态，不返回任何 cookie 或响应体。
+  if (req.url === "/__entry-stats") {
+    const entries = [...cache.entries()].map(([key, v]) => ({
+      key, ageMs: Date.now() - v.at, bytes: v.body.length,
+    }));
+    res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+    res.end(JSON.stringify({ startedAt: stats.startedAt, upstream: UPSTREAM.origin, ttlMs: CACHE_TTL_MS, staleMs: CACHE_STALE_MS, entries, fetches: stats.fetches, warmupFailures: stats.warmupFailures }, null, 2));
+    return;
+  }
+
   const cached = fromCache(req);
   if (cached) { send(res, cached.entry, req, cached.state); return; }
+
+  // 缓存不可用，但同一路径已经在拉了：跟着那一次走，
+  // 不要再开一条跨境连接去抢本就拥挤的带宽。
+  if (cacheable(req)) {
+    const running = inflight.get(cacheKey(req));
+    if (running) {
+      const shared = await running;
+      if (shared) { send(res, shared, req, "MISS"); return; }
+    }
+  }
 
   try {
     const body = await collectBody(req);
@@ -225,21 +301,35 @@ server.headersTimeout = 70000;
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`Calendar entry ready on ${PORT} → ${UPSTREAM.origin}`);
   warmup();
+  startRefresher();
 });
 
 /**
  * 沙箱冷启后第一波访客不该承担整段跨境往返，所以自己先把
- * 首页与通知列表拉进缓存；失败无所谓，访客请求会自行重试。
+ * 通知列表与首页拉进缓存。
+ *
+ * 串行而不是并发：这条跨境链路单请求固定开销就有好几秒，
+ * 并发只会互相抢带宽，把每个请求都拖长。通知列表是关键路径，排第一。
+ * 每个目标重试三次——沙箱刚起来时 DNS 与出网未必就绪，一次失败不代表不可用。
  */
-function warmup() {
-  for (const url of ["/", "/api/events"]) {
-    const pseudo = { method: "GET", url, headers: { "accept-encoding": "gzip" } };
-    requestUpstream(pseudo, null)
-      .then((upstream) => {
+async function warmup() {
+  for (const url of ["/api/events", "/"]) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const startedAt = Date.now();
+      const pseudo = { method: "GET", url, headers: { "accept-encoding": "gzip" } };
+      try {
+        const upstream = await requestUpstream(pseudo, null);
         remember(pseudo, upstream);
-        console.log(`warmup ok: ${url} ${upstream.body.length}B`);
-      })
-      .catch((error) => console.error(`warmup failed: ${url}`, error?.code || error?.message));
+        console.log(`warmup ok: ${url} ${upstream.body.length}B (${Date.now() - startedAt}ms, attempt ${attempt})`);
+        break;
+      } catch (error) {
+        const reason = error?.cause?.code || error?.code || error?.message || "NETWORK";
+        stats.warmupFailures.push({ at: new Date().toISOString(), url, attempt, reason, ms: Date.now() - startedAt });
+        if (stats.warmupFailures.length > 20) stats.warmupFailures.shift();
+        console.error(`warmup failed: ${url} attempt ${attempt}`, reason);
+        if (attempt < 3) await new Promise((r) => setTimeout(r, 2000 * attempt));
+      }
+    }
   }
 }
 
