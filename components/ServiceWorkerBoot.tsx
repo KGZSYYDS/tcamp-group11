@@ -23,18 +23,43 @@ export default function ServiceWorkerBoot() {
     if (!secure) return;
 
     const register = () => {
-      navigator.serviceWorker.register("/sw.js").catch(() => {
-        /* 注册失败就退化成普通页面，不影响使用 */
-      });
+      navigator.serviceWorker
+        .register("/sw.js", { updateViaCache: "none" })
+        .then((reg) => {
+          // 每次打开都主动问一次有没有新版本，别等浏览器自己想起来
+          reg.update().catch(() => undefined);
+        })
+        .catch(() => {
+          /* 注册失败就退化成普通页面，不影响使用 */
+        });
     };
+
+    /**
+     * 新的 Service Worker 接手后重新加载一次页面。
+     *
+     * 老页面可能是上一次构建的 HTML，它引用的 JS 分块在新构建里已经 404，
+     * 留着只会白屏或点不动。新 SW 已经把旧缓存清掉了，这时刷新正好拿到新页面。
+     * 只刷一次，避免和用户自己的刷新互相触发。
+     */
+    let reloading = false;
+    const onControllerChange = () => {
+      if (reloading) return;
+      reloading = true;
+      window.location.reload();
+    };
+    navigator.serviceWorker.addEventListener("controllerchange", onControllerChange);
 
     // 等首屏稳定后再注册，别和 hydration 抢主线程
     if (document.readyState === "complete") {
       register();
-      return;
+    } else {
+      window.addEventListener("load", register, { once: true });
     }
-    window.addEventListener("load", register, { once: true });
-    return () => window.removeEventListener("load", register);
+
+    return () => {
+      window.removeEventListener("load", register);
+      navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange);
+    };
   }, []);
 
   return null;

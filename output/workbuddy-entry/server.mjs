@@ -116,6 +116,14 @@ function collectBody(req) {
 
 const CACHE_TTL_MS = 300_000;
 const CACHE_STALE_MS = 60 * 60_000;
+/**
+ * 静态资源（/_next/static/**）的文件名里带内容哈希：重建一次就换一个名字，
+ * 同名文件的内容永远不会变。所以它们可以按「不可变」缓存很久——
+ * 用 5 分钟那套 TTL 只会让每 5 分钟就有一个访客替所有人再跨境拉一次
+ * 几百 KB 的 chunk（实测单个 chunk 首拉 0.8–6.0 秒）。
+ */
+const STATIC_TTL_MS = 24 * 60 * 60_000;
+const STATIC_STALE_MS = 7 * 24 * 60 * 60_000;
 const REFRESH_INTERVAL_MS = 240_000;
 const cache = new Map(); // key -> { at, status, headers, body }
 const inflight = new Map(); // key -> Promise，同一路径同时只拉一次
@@ -156,13 +164,25 @@ function cacheable(req) {
  * 通知列表过期后先把手上的旧数据返给访客，再后台刷新。
  * 否则每个访客都要等一次「云端 → 东京 → 家里」的完整往返。
  */
+function isStatic(url) {
+  return String(url || "").startsWith("/_next/static/");
+}
+
+/** 静态文件用「不可变」的长期 TTL，接口用 5 分钟短 TTL。 */
+function ttlFor(req) {
+  return isStatic(req.url)
+    ? { ttl: STATIC_TTL_MS, stale: STATIC_STALE_MS }
+    : { ttl: CACHE_TTL_MS, stale: CACHE_STALE_MS };
+}
+
 function fromCache(req) {
   const key = cacheKey(req);
   const hit = cache.get(key);
   if (!hit) return null;
+  const { ttl, stale } = ttlFor(req);
   const age = Date.now() - hit.at;
-  if (age <= CACHE_TTL_MS) return { entry: hit, state: "HIT" };
-  if (age > CACHE_STALE_MS) return null;
+  if (age <= ttl) return { entry: hit, state: "HIT" };
+  if (age > stale) return null;
   refreshInBackground(req);
   return { entry: hit, state: "STALE" };
 }
@@ -200,7 +220,12 @@ function startRefresher() {
 
 function remember(req, entry) {
   if (!cacheable(req)) return;
-  if (cache.size > 200) cache.clear();
+  // 静态资源现在能留 24 小时，条目会随重建次数缓慢累积。
+  // 超限时淘汰最旧的一批（而不是整表清空），避免把刚预热好的 chunk 一起丢掉。
+  if (cache.size > 400) {
+    const oldest = [...cache.entries()].sort((a, b) => a[1].at - b[1].at).slice(0, 100);
+    for (const [key] of oldest) cache.delete(key);
+  }
   cache.set(cacheKey(req), { ...entry, at: Date.now() });
 }
 
@@ -265,7 +290,7 @@ const server = http.createServer(async (req, res) => {
       key, ageMs: Date.now() - v.at, bytes: v.body.length,
     }));
     res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
-    res.end(JSON.stringify({ startedAt: stats.startedAt, upstream: UPSTREAM.origin, ttlMs: CACHE_TTL_MS, staleMs: CACHE_STALE_MS, entries, fetches: stats.fetches, warmupFailures: stats.warmupFailures }, null, 2));
+    res.end(JSON.stringify({ startedAt: stats.startedAt, upstream: UPSTREAM.origin, ttlMs: CACHE_TTL_MS, staleMs: CACHE_STALE_MS, staticTtlMs: STATIC_TTL_MS, staticStaleMs: STATIC_STALE_MS, entries, fetches: stats.fetches, warmupFailures: stats.warmupFailures }, null, 2));
     return;
   }
 
@@ -313,6 +338,8 @@ server.listen(PORT, "0.0.0.0", () => {
  * 每个目标重试三次——沙箱刚起来时 DNS 与出网未必就绪，一次失败不代表不可用。
  */
 async function warmup() {
+  let homepageHtml = null;
+
   for (const url of ["/api/events", "/"]) {
     for (let attempt = 1; attempt <= 3; attempt++) {
       const startedAt = Date.now();
@@ -320,6 +347,12 @@ async function warmup() {
       try {
         const upstream = await requestUpstream(pseudo, null);
         remember(pseudo, upstream);
+        if (url === "/") {
+          // 首页要用来解析 chunk 清单，必须是明文 HTML。
+          homepageHtml = String(upstream.headers["content-encoding"] || "").includes("gzip")
+            ? gunzipSync(upstream.body).toString("utf8")
+            : upstream.body.toString("utf8");
+        }
         console.log(`warmup ok: ${url} ${upstream.body.length}B (${Date.now() - startedAt}ms, attempt ${attempt})`);
         break;
       } catch (error) {
@@ -329,6 +362,35 @@ async function warmup() {
         console.error(`warmup failed: ${url} attempt ${attempt}`, reason);
         if (attempt < 3) await new Promise((r) => setTimeout(r, 2000 * attempt));
       }
+    }
+  }
+
+  /**
+   * 再按首页引用的顺序把 JS/CSS chunk 拉进缓存。
+   *
+   * 为什么值得单独做：重建之后 chunk 全换新哈希，入口缓存里一个都没有，
+   * 第一个访客得串行/并行跨境拉十来个文件（实测单个 0.8–6.0 秒），
+   * 手机上就是长时间白屏，用户以为打不开。
+   * 预热完这些人命中 HIT（几十毫秒），且能留 24 小时。
+   * 仍然串行：并发只会在这条链路上互相抢带宽。
+   */
+  if (!homepageHtml) return;
+  const refs = new Set();
+  for (const match of homepageHtml.matchAll(/(?:src|href)="(\/_next\/static\/[^"]+)"/g)) {
+    refs.add(match[1].replace(/&amp;/g, "&"));
+  }
+  for (const url of refs) {
+    const startedAt = Date.now();
+    const pseudo = { method: "GET", url, headers: { "accept-encoding": "gzip" } };
+    try {
+      const upstream = await requestUpstream(pseudo, null);
+      remember(pseudo, upstream);
+      console.log(`warmup asset ok: ${url} ${upstream.body.length}B (${Date.now() - startedAt}ms)`);
+    } catch (error) {
+      const reason = error?.cause?.code || error?.code || error?.message || "NETWORK";
+      stats.warmupFailures.push({ at: new Date().toISOString(), url, attempt: 1, reason, ms: Date.now() - startedAt });
+      if (stats.warmupFailures.length > 20) stats.warmupFailures.shift();
+      console.error(`warmup asset failed: ${url}`, reason);
     }
   }
 }
