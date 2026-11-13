@@ -16,11 +16,15 @@ type Pending = {
   ctx: ReAuthCtx;
   studentId: string;
   expires: number;
+  lastSentAt: number;
+  sending: boolean;
 };
 
 const TTL = 5 * 60 * 1000;
 const MAX = 200;
-const store = new Map<string, Pending>();
+// Route bundles and development reloads must share the same pending login.
+const shared = globalThis as typeof globalThis & { szuPendingMfa?: Map<string, Pending> };
+const store = shared.szuPendingMfa ??= new Map<string, Pending>();
 
 function sweep() {
   const now = Date.now();
@@ -36,7 +40,7 @@ function sweep() {
 export function putMfa(owner: string, jar: CookieJar, ctx: ReAuthCtx, studentId: string) {
   sweep();
   const token = crypto.randomBytes(24).toString("hex");
-  store.set(token, { owner, jar, ctx, studentId, expires: Date.now() + TTL });
+  store.set(token, { owner, jar, ctx, studentId, expires: Date.now() + TTL, lastSentAt: Date.now(), sending: false });
   return token;
 }
 

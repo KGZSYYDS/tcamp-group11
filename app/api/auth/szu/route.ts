@@ -121,13 +121,13 @@ export async function POST(req: Request) {
       if (isSms) {
         const to = sent.mobile || "你绑定统一认证的手机";
         message = sent.mobile
-          ? `验证码已通过短信发到 ${to}，把 6 位数字填进来就好`
+          ? `学校已受理短信验证码请求，接收号码：${to}。这不代表短信已经送达。`
           : `学校已受理发码，但没回传手机号。如果短信一直不来，可能是统一认证里没绑手机 —— 去 https://authserver.szu.edu.cn 用「忘记密码」查一下绑定情况`;
       } else {
-        message = `学校这个账号没开通短信验证码，验证码发到了「${step.ctx.what}」。请打开${step.ctx.what.replace(
+        message = `切换短信验证未成功，本次仍使用「${step.ctx.what}」。学校接口已受理发码请求，但无法确认消息送达。请打开${step.ctx.what.replace(
           "验证码",
           ""
-        )}查看，而不是等短信`;
+        )}，切换至深圳大学所属组织，检查学校认证相关应用消息。如果仍收不到，请复制下方诊断信息；也可在学校统一认证官网核对可用的验证方式。`;
       }
 
       return NextResponse.json({
@@ -139,6 +139,11 @@ export async function POST(req: Request) {
         channelType: step.ctx.reAuthType,
         smsSwitched: switched && isSms,
         message,
+        debug: {
+          trace: trace.filter((line) =>
+            /^(切换认证方式 →|发验证码 |二次认证 kind=)/.test(line)
+          ),
+        },
       });
     }
 

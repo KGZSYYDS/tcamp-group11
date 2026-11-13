@@ -622,8 +622,8 @@ export async function switchReAuthType(
   }
   const payload = (data.data ?? {}) as Record<string, unknown>;
   const now = String(payload.reAuthType ?? "");
-  const ok = Number(data.code) === 1 && now === target;
-  traceAdd(trace, `切换认证方式 → ${target} ${ok ? "成功" : "失败（沿用原方式）"}`);
+  const ok = r.ok && Number(data.code) === 1 && now === target;
+  traceAdd(trace, `切换认证方式 → ${target} ${ok ? "成功" : "失败（沿用原方式）"} HTTP=${r.status} code=${Number.isFinite(Number(data.code)) ? Number(data.code) : "未知"}`);
   if (ok) {
     ctx.reAuthType = now;
     ctx.what = REAUTH_TYPE_LABEL[now] || ctx.what;
