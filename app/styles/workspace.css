@@ -258,7 +258,7 @@ input:focus,textarea:focus,select:focus { outline:2px solid var(--brand); outlin
   .app-header { grid-row:1; grid-column:1/-1; }
   .app-header h1 { font-size:18px; }.app-header>div>div:first-child { width:32px; height:32px; border-radius:10px; }.app-header { gap:8px; }.app-header>button { padding:7px; font-size:11px; }
   .app-nav { grid-row:2; grid-column:1/-1; }
-  .app-nav { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); width:100%; border-radius:12px; gap:2px; padding:3px; }.app-nav>button { padding:8px 0; font-size:12px; min-width:0; }.app-footer { display:none; }
+  .app-nav { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); width:100%; border-radius:12px; gap:2px; padding:3px; }.app-nav>button { padding:8px 0; font-size:12px; min-width:0; }.app-footer { display:none; }
   .app-main { grid-row:3; }
   .app-nav>button { overflow:hidden; text-overflow:ellipsis; }
   .app-nav .nav-badge { position:absolute; top:2px; right:2px; font-size:8px; min-width:0; margin:0; }

@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { createEvent } from "@/lib/data";
 import { addMyEvent, importDdls } from "@/lib/local-store";
+import { IS_PUBLIC_DEPLOY } from "@/lib/runtime-mode";
 import {
   REMIND_OPTIONS,
   buildMeetingNote,
@@ -44,7 +45,7 @@ export default function PasteImporter() {
    *
    * 所有「setState 之后再解析」的地方都不能直接读 state：setState 是异步的，
    * setTimeout 回调里执行的是上一次 render 的闭包，读到的还是旧值（空串），
-   * 于是「读取剪贴板」「Ctrl+V 自动解析」全都解析了个空内容。
+   * 否则 Ctrl+V 自动解析会读到旧内容。
    * 这里每次 render 同步刷新 ref，定时器触发时读到的必然是最新值。
    */
   const textRef = useRef(text);
@@ -75,27 +76,6 @@ export default function PasteImporter() {
       setError(e instanceof Error ? e.message : "解析失败，请重试");
     }
     setParsing(false);
-  }
-
-  /** 从剪贴板里取图片（截图直接 Ctrl+V 到这里） */
-  async function grabImageFromClipboard() {
-    try {
-      const items = await navigator.clipboard.read();
-      for (const item of items) {
-        const type = item.types.find((t) => t.startsWith("image/"));
-        if (type) {
-          const blob = await item.getType(type);
-          const url = await blobToDataUrl(blob);
-          setImage(url);
-          setText("");
-          await parseChat({ image: url, text: "" });
-          return;
-        }
-      }
-      setError("剪贴板里没有图片，先截图（Win+Shift+S）再点这里");
-    } catch {
-      setError("浏览器未授权读剪贴板，请直接 Ctrl+V 粘贴截图");
-    }
   }
 
   function blobToDataUrl(blob: Blob): Promise<string> {
@@ -213,21 +193,6 @@ export default function PasteImporter() {
     }, 120);
   }
 
-  /** 一键读取剪贴板（浏览器授权后自动解析） */
-  async function readClipboard() {
-    try {
-      const content = await navigator.clipboard.readText();
-      if (!content.trim()) {
-        setError("剪贴板是空的，先复制内容");
-        return;
-      }
-      setText(content);
-      await parse({ text: content });
-    } catch {
-      setError("浏览器未授权读取剪贴板，请用 Ctrl+V 粘贴（粘贴后会自动解析）");
-    }
-  }
-
   function patchCandidate(index: number, patch: Partial<Candidate>) {
     setCandidates((prev) => prev.map((c, i) => (i === index ? { ...c, ...patch } : c)));
   }
@@ -284,9 +249,8 @@ export default function PasteImporter() {
         grade: eventForm.scope === "grade" ? eventForm.grade || undefined : undefined,
         source: "paste-import",
       };
-      // 和日历面板同一条规则：仅自己留本机，全校/学院/年级才写云库
-      // （ParsedEvent 的 scope 类型不含 personal，但下拉框里有，运行时确实会出现）
-      if ((eventForm.scope as string) === "personal") {
+      // 与日历面板共用保存规则，公网导入的通知也归入个人日历。
+      if (IS_PUBLIC_DEPLOY || (eventForm.scope as string) === "personal") {
         addMyEvent({
           kind: payload.kind,
           source: "paste-import",
@@ -312,47 +276,32 @@ export default function PasteImporter() {
 
   return (
     <div>
-      <div className="mb-4 flex items-center gap-2">
-        {(["auto", "chat", "ddl", "event"] as const).map((m) => (
-          <button
-            key={m}
-            onClick={() => {
-              setMode(m);
-              setCandidates([]);
-              setEventForm(null);
-              setMeetings([]);
-              setError("");
-              setResultMsg("");
-            }}
-            className={`rounded-full px-4 py-1.5 text-sm ${
-              mode === m ? "bg-indigo-600 text-white" : "bg-white text-gray-600 hover:bg-gray-100"
-            }`}
-          >
-            {m === "auto"
-              ? "智能识别"
-              : m === "chat"
-                ? "群聊 / 会议"
-                : m === "ddl"
-                  ? "作业列表"
-                  : "通知 / 活动"}
-          </button>
-        ))}
-        {mode === "chat" && (
-          <button
-            onClick={grabImageFromClipboard}
-            className="ml-auto rounded-lg border border-violet-200 px-3 py-1.5 text-sm text-violet-600 hover:bg-violet-50"
-          >
-            读剪贴板截图
-          </button>
-        )}
-        {mode !== "chat" && (
-          <button
-            onClick={readClipboard}
-            className="ml-auto rounded-lg border border-violet-200 px-3 py-1.5 text-sm text-violet-600 hover:bg-violet-50"
-          >
-            读取剪贴板
-          </button>
-        )}
+      <div role="group" aria-label="导入模式" className="mb-3 grid grid-cols-4 gap-1 sm:inline-grid sm:gap-2">
+          {(["auto", "chat", "ddl", "event"] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => {
+                setMode(m);
+                setCandidates([]);
+                setEventForm(null);
+                setMeetings([]);
+                setError("");
+                setResultMsg("");
+              }}
+              aria-pressed={mode === m}
+              className={`min-h-8 whitespace-nowrap rounded-full px-1.5 py-1.5 text-[11px] sm:px-3 sm:text-xs ${
+                mode === m ? "bg-indigo-600 text-white" : "bg-white text-gray-600 hover:bg-gray-100"
+              }`}
+            >
+              {m === "auto"
+                ? "智能识别"
+                : m === "chat"
+                  ? "群聊/会议"
+                  : m === "ddl"
+                    ? "作业列表"
+                    : "通知/活动"}
+            </button>
+          ))}
       </div>
 
       <div className="rounded-xl bg-white p-5 shadow-sm">
@@ -394,7 +343,7 @@ export default function PasteImporter() {
           placeholder={
             mode === "chat"
               ? "Ctrl+V 粘贴群消息文字或聊天截图，粘贴后自动解析"
-              : "Ctrl+V 粘贴后自动解析，也可点上方「读取剪贴板」"
+              : "粘贴通知或作业文字，粘贴后自动解析"
           }
           className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-indigo-400"
         />
@@ -624,20 +573,25 @@ export default function PasteImporter() {
             <label className="text-xs text-gray-500">
               可见范围
               <select
-                value={eventForm.scope}
+                value={IS_PUBLIC_DEPLOY ? "personal" : eventForm.scope}
+                disabled={IS_PUBLIC_DEPLOY}
                 onChange={(e) => setEventForm({ ...eventForm, scope: e.target.value as ParsedEvent["scope"] })}
                 className="mt-1 w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm"
               >
                 <option value="personal">仅自己</option>
-                <option value="school">全校</option>
-                <option value="college">学院</option>
-                <option value="grade">年级</option>
-                <option value="undergraduate">本科生</option>
-                <option value="postgraduate">硕士生</option>
-                <option value="doctoral">博士生</option>
+                {!IS_PUBLIC_DEPLOY && (
+                  <>
+                    <option value="school">全校</option>
+                    <option value="college">学院</option>
+                    <option value="grade">年级</option>
+                    <option value="undergraduate">本科生</option>
+                    <option value="postgraduate">硕士生</option>
+                    <option value="doctoral">博士生</option>
+                  </>
+                )}
               </select>
             </label>
-            {eventForm.scope === "college" && (
+            {!IS_PUBLIC_DEPLOY && eventForm.scope === "college" && (
               <label className="text-xs text-gray-500">
                 学院全名
                 <input
@@ -647,7 +601,7 @@ export default function PasteImporter() {
                 />
               </label>
             )}
-            {eventForm.scope === "grade" && (
+            {!IS_PUBLIC_DEPLOY && eventForm.scope === "grade" && (
               <label className="text-xs text-gray-500">
                 年级（如 2026 级）
                 <input

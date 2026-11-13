@@ -17,7 +17,7 @@
  *   放在云库反而多一处私人数据可读面。
  */
 
-import type { Checkin, CheckinInput, Ddl, DdlInput, DdlStatus } from "./types";
+import type { Checkin, Ddl, DdlInput, DdlStatus } from "./types";
 
 // ---------- 课表 ----------
 
@@ -382,20 +382,6 @@ function saveCheckins(list: Checkin[]) {
   if (!isBrowser()) return;
   window.localStorage.setItem(CHECKIN_KEY, JSON.stringify(list));
   notifyLocalChange();
-}
-
-export function addCheckin(input: CheckinInput): Checkin {
-  const c: Checkin = {
-    id: uid("c"),
-    course: input.course.trim(),
-    teacher: input.teacher?.trim() || undefined,
-    occurredAt: new Date(input.occurredAt).toISOString(),
-    note: input.note?.trim() || undefined,
-    source: input.source || "manual",
-    createdAt: new Date().toISOString(),
-  };
-  saveCheckins([...loadCheckins(), c]);
-  return c;
 }
 
 export function removeCheckin(id: string): boolean {

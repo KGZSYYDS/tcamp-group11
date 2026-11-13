@@ -38,14 +38,6 @@ export interface Checkin {
   createdAt: string;
 }
 
-export interface CheckinInput {
-  course: string;
-  teacher?: string;
-  occurredAt: string;
-  note?: string;
-  source?: string;
-}
-
 /** 通用日历事件：考试 / 体测 / 活动 / 会议 / 截止 / 其他 */
 export type EventKind = "exam" | "pe" | "activity" | "meeting" | "deadline" | "other";
 

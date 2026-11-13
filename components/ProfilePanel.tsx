@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import { getProfile, saveProfile } from "@/lib/data";
 import type { SzUser } from "@/lib/szu-types";
 import LoginPanel from "@/components/LoginPanel";
-import WeChatImporter from "@/components/WeChatImporter";
 import {
   clearPersonal,
   clearTimetable,
@@ -428,42 +427,6 @@ export default function ProfilePanel({ session, onSignedIn, onSignOut }: Props) 
         )}
       </div>
 
-      <WeChatImporter
-        onImported={(items, addedCount) => {
-          setPersonal(loadPersonal());
-          setImportMsg(
-            addedCount > 0
-              ? `从聊天记录里提出 ${items.length} 条，本机新增 ${addedCount} 条`
-              : `提出 ${items.length} 条，都是已存在的，没有重复写入`
-          );
-        }}
-      />
-
-      <div className="rounded-xl bg-white p-5 shadow-sm sm:col-span-2">
-        <h2 className="mb-1 font-medium">命令行采集（可选）</h2>
-        <p className="mb-3 text-xs text-gray-400">
-          只为批量任务保留：批量抓公文通与官网、全量扫微信群。
-          与网页共用同一份会话缓存，网页登录过之后命令行不用再输密码。
-        </p>
-        <ol className="space-y-2 text-xs text-gray-600">
-          <li>
-            <code className="rounded bg-gray-100 px-1 py-0.5">npm run collect:web</code>
-            <span className="ml-2 text-gray-400">官网公告 / 学术动态（免登录）</span>
-          </li>
-          <li>
-            <code className="rounded bg-gray-100 px-1 py-0.5">npm run collect:board</code>
-            <span className="ml-2 text-gray-400">公文通通知（要登录）</span>
-          </li>
-          <li>
-            <code className="rounded bg-gray-100 px-1 py-0.5">npm run ingest:notices</code>
-            <span className="ml-2 text-gray-400">抽时间与截止，写公共库</span>
-          </li>
-          <li>
-            <code className="rounded bg-gray-100 px-1 py-0.5">npm run meetings:all</code>
-            <span className="ml-2 text-gray-400">扫全部群，模型抽取后导入</span>
-          </li>
-        </ol>
-      </div>
     </div>
   );
 }

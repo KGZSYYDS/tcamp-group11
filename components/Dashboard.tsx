@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import CheckinPanel from "@/components/CheckinPanel";
 import CalendarPanel from "@/components/CalendarPanel";
 import ProfilePanel from "@/components/ProfilePanel";
 import SyncReceiver from "@/components/SyncReceiver";
@@ -11,12 +10,11 @@ import ReminderBar from "@/components/ReminderBar";
 import { RippleButton } from "./calendar/ui/RippleButton";
 import type { SzUser } from "@/lib/szu-types";
 
-type Tab = "calendar" | "ddl" | "checkin" | "paste" | "me";
+type Tab = "calendar" | "ddl" | "paste" | "me";
 
 const TABS: ReadonlyArray<[Tab, string]> = [
   ["calendar", "日历"],
   ["ddl", "作业"],
-  ["checkin", "签到"],
   ["paste", "导入"],
   ["me", "我的"],
 ];
@@ -133,7 +131,6 @@ export default function Dashboard() {
         <div className="app-content" key={tab}>
           {tab === "calendar" && <CalendarPanel session={user} />}
           {tab === "ddl" && <DdlPanel />}
-          {tab === "checkin" && <CheckinPanel />}
           {tab === "paste" && <PasteImporter />}
           {tab === "me" && (
             <ProfilePanel session={user} onSignedIn={loadSession} onSignOut={loadSession} />
@@ -142,7 +139,7 @@ export default function Dashboard() {
       </div>
 
       <footer className="app-footer">
-        校园通知从云端读取 · 个人日程、作业、签到和课表保存在此浏览器
+        校园通知从云端读取 · 个人日程、作业和课表保存在此浏览器
       </footer>
       <SyncReceiver />
     </main>

@@ -11,4 +11,16 @@ export const cloud = createWorkBuddyCloud({
   endpoint: publicConfig.endpoint,
   oauthRelayBaseUrl: publicConfig.oauthRelayBaseUrl,
   publishableKey: publicConfig.publishableKey,
+  fetch: (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    // 模型网关按 Origin 限制跨域，公网浏览器经同源接口调用。
+    if (
+      typeof window !== "undefined" &&
+      url.origin === publicConfig.endpoint &&
+      ["/.cloud/llm/models", "/.cloud/llm/chat/completions"].includes(url.pathname)
+    ) {
+      return fetch("/api/ai", { ...init, credentials: "same-origin" });
+    }
+    return fetch(input, init);
+  },
 });

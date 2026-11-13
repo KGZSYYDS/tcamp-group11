@@ -7,7 +7,7 @@ import "./styles/workspace.css";
 
 export const metadata: Metadata = {
   title: "深大日程助手",
-  description: "作业、签到、考试、体测——与你有关的每一天",
+  description: "课表、作业、考试、校园通知——与你有关的每一天",
 };
 
 export default function RootLayout({
